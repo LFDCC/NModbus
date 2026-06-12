@@ -3,8 +3,11 @@ namespace NModbus.Data
     /// <summary>
     ///     Supported data types for Modbus register interpretation.
     /// </summary>
-    public enum DataTypeEnum
+    public enum DataTypeEnum : byte
     {
+        /// <summary>No value assigned (default).</summary>
+        None = 0,
+
         /// <summary>Boolean (coil/discrete input, 1 bit)</summary>
         Bool,
 

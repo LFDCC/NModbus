@@ -5,16 +5,16 @@ namespace NModbus.Data
 {
     /// <summary>
     ///     Discriminated union for Modbus register values. Stored inline in collections — no boxing.
-    ///     Size: 12 bytes (1 byte type tag + up to 8 bytes value + padding).
+    ///     Size: 16 bytes (4 bytes type enum + 8 bytes primary value + 4 bytes padding).
     /// </summary>
     public readonly struct ModbusValue : IEquatable<ModbusValue>
     {
-        private readonly byte _type;  // 0=empty, 1=bool, 2=short, 3=ushort, 4=int, 5=uint, 6=long, 7=ulong, 8=float, 9=double
-        private readonly long _intVal;    // stores int/short/ushort/int/uint/long (sign-extended)
+        private readonly DataTypeEnum _type;
+        private readonly long _intVal;    // stores bool/short/ushort/int/uint/long
         private readonly ulong _uintVal;  // stores ulong
         private readonly double _dblVal;  // stores float/double
 
-        private ModbusValue(byte type, long intVal, ulong uintVal, double dblVal)
+        private ModbusValue(DataTypeEnum type, long intVal, ulong uintVal, double dblVal)
         {
             _type = type;
             _intVal = intVal;
@@ -23,34 +23,22 @@ namespace NModbus.Data
         }
 
         /// <summary>The data type of this value.</summary>
-        public DataTypeEnum DataType => _type switch
-        {
-            1 => DataTypeEnum.Bool,
-            2 => DataTypeEnum.Int16,
-            3 => DataTypeEnum.UInt16,
-            4 => DataTypeEnum.Int32,
-            5 => DataTypeEnum.UInt32,
-            6 => DataTypeEnum.Int64,
-            7 => DataTypeEnum.UInt64,
-            8 => DataTypeEnum.Float,
-            9 => DataTypeEnum.Double,
-            _ => throw new InvalidOperationException("ModbusValue is empty.")
-        };
+        public DataTypeEnum DataType => _type;
 
         /// <summary>True if this value has been assigned.</summary>
-        public bool HasValue => _type != 0;
+        public bool HasValue => _type != DataTypeEnum.None;
 
         #region Factory Methods
 
-        public static ModbusValue From(bool value) => new(1, value ? 1 : 0, 0, 0);
-        public static ModbusValue From(short value) => new(2, value, 0, 0);
-        public static ModbusValue From(ushort value) => new(3, value, 0, 0);
-        public static ModbusValue From(int value) => new(4, value, 0, 0);
-        public static ModbusValue From(uint value) => new(5, (long)value, 0, 0);
-        public static ModbusValue From(long value) => new(6, value, 0, 0);
-        public static ModbusValue From(ulong value) => new(7, 0, value, 0);
-        public static ModbusValue From(float value) => new(8, 0, 0, value);
-        public static ModbusValue From(double value) => new(9, 0, 0, value);
+        public static ModbusValue From(bool value) => new(DataTypeEnum.Bool, value ? 1 : 0, 0, 0);
+        public static ModbusValue From(short value) => new(DataTypeEnum.Int16, value, 0, 0);
+        public static ModbusValue From(ushort value) => new(DataTypeEnum.UInt16, value, 0, 0);
+        public static ModbusValue From(int value) => new(DataTypeEnum.Int32, value, 0, 0);
+        public static ModbusValue From(uint value) => new(DataTypeEnum.UInt32, (long)value, 0, 0);
+        public static ModbusValue From(long value) => new(DataTypeEnum.Int64, value, 0, 0);
+        public static ModbusValue From(ulong value) => new(DataTypeEnum.UInt64, 0, value, 0);
+        public static ModbusValue From(float value) => new(DataTypeEnum.Float, 0, 0, value);
+        public static ModbusValue From(double value) => new(DataTypeEnum.Double, 0, 0, value);
 
         #endregion
 
@@ -58,65 +46,64 @@ namespace NModbus.Data
 
         public bool ToBool()
         {
-            if (_type != 1) ThrowTypeMismatch(DataTypeEnum.Bool);
+            if (_type != DataTypeEnum.Bool) ThrowTypeMismatch(DataTypeEnum.Bool);
             return _intVal != 0;
         }
 
         public short ToInt16()
         {
-            if (_type != 2) ThrowTypeMismatch(DataTypeEnum.Int16);
+            if (_type != DataTypeEnum.Int16) ThrowTypeMismatch(DataTypeEnum.Int16);
             return (short)_intVal;
         }
 
         public ushort ToUInt16()
         {
-            if (_type != 3) ThrowTypeMismatch(DataTypeEnum.UInt16);
+            if (_type != DataTypeEnum.UInt16) ThrowTypeMismatch(DataTypeEnum.UInt16);
             return (ushort)_intVal;
         }
 
         public int ToInt32()
         {
-            if (_type != 4) ThrowTypeMismatch(DataTypeEnum.Int32);
+            if (_type != DataTypeEnum.Int32) ThrowTypeMismatch(DataTypeEnum.Int32);
             return (int)_intVal;
         }
 
         public uint ToUInt32()
         {
-            if (_type != 5) ThrowTypeMismatch(DataTypeEnum.UInt32);
+            if (_type != DataTypeEnum.UInt32) ThrowTypeMismatch(DataTypeEnum.UInt32);
             return (uint)_intVal;
         }
 
         public long ToInt64()
         {
-            if (_type != 6) ThrowTypeMismatch(DataTypeEnum.Int64);
+            if (_type != DataTypeEnum.Int64) ThrowTypeMismatch(DataTypeEnum.Int64);
             return _intVal;
         }
 
         public ulong ToUInt64()
         {
-            if (_type != 7) ThrowTypeMismatch(DataTypeEnum.UInt64);
+            if (_type != DataTypeEnum.UInt64) ThrowTypeMismatch(DataTypeEnum.UInt64);
             return _uintVal;
         }
 
         public float ToFloat()
         {
-            if (_type != 8) ThrowTypeMismatch(DataTypeEnum.Float);
+            if (_type != DataTypeEnum.Float) ThrowTypeMismatch(DataTypeEnum.Float);
             return (float)_dblVal;
         }
 
         public double ToDouble()
         {
-            if (_type != 9) ThrowTypeMismatch(DataTypeEnum.Double);
+            if (_type != DataTypeEnum.Double) ThrowTypeMismatch(DataTypeEnum.Double);
             return _dblVal;
         }
 
         #endregion
 
-        #region Generic Conversion (still no boxing for value types)
+        #region Generic Conversion (no boxing for value types)
 
         /// <summary>
-        ///     Convert to the requested type T. Supports all Modbus data types.
-        ///     No boxing when T is a value type (JIT eliminates the cast for same-type).
+        ///     Convert to the requested type T. No boxing when T is a value type.
         /// </summary>
         public T To<T>()
         {
@@ -139,18 +126,20 @@ namespace NModbus.Data
 
         /// <summary>
         ///     Convert to object. This boxes the value — use To&lt;T&gt;() for zero-allocation.
+        ///     Each branch has explicit (object) cast to prevent numeric type promotion.
         /// </summary>
         public object ToObject() => _type switch
         {
-            1 => (object)(_intVal != 0),
-            2 => (object)(short)_intVal,
-            3 => (object)(ushort)_intVal,
-            4 => (object)(int)_intVal,
-            5 => (object)(uint)_intVal,
-            6 => (object)_intVal,
-            7 => (object)_uintVal,
-            8 => (object)(float)_dblVal,
-            9 => (object)_dblVal,
+            DataTypeEnum.None => throw new InvalidOperationException("ModbusValue is empty."),
+            DataTypeEnum.Bool => (object)(_intVal != 0),
+            DataTypeEnum.Int16 => (object)(short)_intVal,
+            DataTypeEnum.UInt16 => (object)(ushort)_intVal,
+            DataTypeEnum.Int32 => (object)(int)_intVal,
+            DataTypeEnum.UInt32 => (object)(uint)_intVal,
+            DataTypeEnum.Int64 => (object)_intVal,
+            DataTypeEnum.UInt64 => (object)_uintVal,
+            DataTypeEnum.Float => (object)(float)_dblVal,
+            DataTypeEnum.Double => (object)_dblVal,
             _ => throw new InvalidOperationException("ModbusValue is empty.")
         };
 
@@ -170,7 +159,7 @@ namespace NModbus.Data
 
         #endregion
 
-        public override string ToString() => HasValue ? $"{DataType}: {ToObject()}" : "(empty)";
+        public override string ToString() => HasValue ? $"{_type}: {ToObject()}" : "(empty)";
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ThrowTypeMismatch(DataTypeEnum expected) =>

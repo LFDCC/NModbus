@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -406,187 +407,171 @@ namespace NModbus.Extensions
 
         #region ReadCoils / ReadInputs WithResp
 
-        /// <summary>Read coils and return the request/response pair with hex frames.</summary>
+        /// <summary>Read coils and return the request/response pair with frame bytes and timing.</summary>
         public static NModbusMessage<ReadCoilsInputsRequest, ReadCoilsInputsResponse> ReadCoilsWithResp(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, ushort numberOfPoints)
         {
             ValidateNumberOfPoints(numberOfPoints, 2000);
             var request = new ReadCoilsInputsRequest(ModbusFunctionCodes.ReadCoils, slaveAddress, startAddress, numberOfPoints);
-            var response = master.Transport.UnicastMessage<ReadCoilsInputsResponse>(request);
-            return CreateMessagePair(master, request, response);
+            return ExecuteWithTiming<ReadCoilsInputsRequest, ReadCoilsInputsResponse>(master, request);
         }
 
-        /// <summary>Async read coils and return the request/response pair with hex frames.</summary>
+        /// <summary>Async read coils and return the request/response pair with frame bytes and timing.</summary>
         public static async Task<NModbusMessage<ReadCoilsInputsRequest, ReadCoilsInputsResponse>> ReadCoilsWithRespAsync(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, ushort numberOfPoints,
             CancellationToken cancellationToken = default)
         {
             ValidateNumberOfPoints(numberOfPoints, 2000);
             var request = new ReadCoilsInputsRequest(ModbusFunctionCodes.ReadCoils, slaveAddress, startAddress, numberOfPoints);
-            var response = await master.Transport.UnicastMessageAsync<ReadCoilsInputsResponse>(request, cancellationToken).ConfigureAwait(false);
-            return CreateMessagePair(master, request, response);
+            return await ExecuteWithTimingAsync<ReadCoilsInputsRequest, ReadCoilsInputsResponse>(master, request, cancellationToken).ConfigureAwait(false);
         }
 
-        /// <summary>Read discrete inputs and return the request/response pair with hex frames.</summary>
+        /// <summary>Read discrete inputs and return the request/response pair with frame bytes and timing.</summary>
         public static NModbusMessage<ReadCoilsInputsRequest, ReadCoilsInputsResponse> ReadInputsWithResp(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, ushort numberOfPoints)
         {
             ValidateNumberOfPoints(numberOfPoints, 2000);
             var request = new ReadCoilsInputsRequest(ModbusFunctionCodes.ReadInputs, slaveAddress, startAddress, numberOfPoints);
-            var response = master.Transport.UnicastMessage<ReadCoilsInputsResponse>(request);
-            return CreateMessagePair(master, request, response);
+            return ExecuteWithTiming<ReadCoilsInputsRequest, ReadCoilsInputsResponse>(master, request);
         }
 
-        /// <summary>Async read discrete inputs and return the request/response pair with hex frames.</summary>
+        /// <summary>Async read discrete inputs and return the request/response pair with frame bytes and timing.</summary>
         public static async Task<NModbusMessage<ReadCoilsInputsRequest, ReadCoilsInputsResponse>> ReadInputsWithRespAsync(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, ushort numberOfPoints,
             CancellationToken cancellationToken = default)
         {
             ValidateNumberOfPoints(numberOfPoints, 2000);
             var request = new ReadCoilsInputsRequest(ModbusFunctionCodes.ReadInputs, slaveAddress, startAddress, numberOfPoints);
-            var response = await master.Transport.UnicastMessageAsync<ReadCoilsInputsResponse>(request, cancellationToken).ConfigureAwait(false);
-            return CreateMessagePair(master, request, response);
+            return await ExecuteWithTimingAsync<ReadCoilsInputsRequest, ReadCoilsInputsResponse>(master, request, cancellationToken).ConfigureAwait(false);
         }
 
         #endregion
 
         #region ReadHoldingRegisters / ReadInputRegisters WithResp
 
-        /// <summary>Read holding registers and return the request/response pair with hex frames.</summary>
+        /// <summary>Read holding registers and return the request/response pair with frame bytes and timing.</summary>
         public static NModbusMessage<ReadHoldingInputRegistersRequest, ReadHoldingInputRegistersResponse> ReadHoldingRegistersWithResp(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, ushort numberOfPoints)
         {
             ValidateNumberOfPoints(numberOfPoints, 125);
             var request = new ReadHoldingInputRegistersRequest(ModbusFunctionCodes.ReadHoldingRegisters, slaveAddress, startAddress, numberOfPoints);
-            var response = master.Transport.UnicastMessage<ReadHoldingInputRegistersResponse>(request);
-            return CreateMessagePair(master, request, response);
+            return ExecuteWithTiming<ReadHoldingInputRegistersRequest, ReadHoldingInputRegistersResponse>(master, request);
         }
 
-        /// <summary>Async read holding registers and return the request/response pair with hex frames.</summary>
+        /// <summary>Async read holding registers and return the request/response pair with frame bytes and timing.</summary>
         public static async Task<NModbusMessage<ReadHoldingInputRegistersRequest, ReadHoldingInputRegistersResponse>> ReadHoldingRegistersWithRespAsync(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, ushort numberOfPoints,
             CancellationToken cancellationToken = default)
         {
             ValidateNumberOfPoints(numberOfPoints, 125);
             var request = new ReadHoldingInputRegistersRequest(ModbusFunctionCodes.ReadHoldingRegisters, slaveAddress, startAddress, numberOfPoints);
-            var response = await master.Transport.UnicastMessageAsync<ReadHoldingInputRegistersResponse>(request, cancellationToken).ConfigureAwait(false);
-            return CreateMessagePair(master, request, response);
+            return await ExecuteWithTimingAsync<ReadHoldingInputRegistersRequest, ReadHoldingInputRegistersResponse>(master, request, cancellationToken).ConfigureAwait(false);
         }
 
-        /// <summary>Read input registers and return the request/response pair with hex frames.</summary>
+        /// <summary>Read input registers and return the request/response pair with frame bytes and timing.</summary>
         public static NModbusMessage<ReadHoldingInputRegistersRequest, ReadHoldingInputRegistersResponse> ReadInputRegistersWithResp(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, ushort numberOfPoints)
         {
             ValidateNumberOfPoints(numberOfPoints, 125);
             var request = new ReadHoldingInputRegistersRequest(ModbusFunctionCodes.ReadInputRegisters, slaveAddress, startAddress, numberOfPoints);
-            var response = master.Transport.UnicastMessage<ReadHoldingInputRegistersResponse>(request);
-            return CreateMessagePair(master, request, response);
+            return ExecuteWithTiming<ReadHoldingInputRegistersRequest, ReadHoldingInputRegistersResponse>(master, request);
         }
 
-        /// <summary>Async read input registers and return the request/response pair with hex frames.</summary>
+        /// <summary>Async read input registers and return the request/response pair with frame bytes and timing.</summary>
         public static async Task<NModbusMessage<ReadHoldingInputRegistersRequest, ReadHoldingInputRegistersResponse>> ReadInputRegistersWithRespAsync(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, ushort numberOfPoints,
             CancellationToken cancellationToken = default)
         {
             ValidateNumberOfPoints(numberOfPoints, 125);
             var request = new ReadHoldingInputRegistersRequest(ModbusFunctionCodes.ReadInputRegisters, slaveAddress, startAddress, numberOfPoints);
-            var response = await master.Transport.UnicastMessageAsync<ReadHoldingInputRegistersResponse>(request, cancellationToken).ConfigureAwait(false);
-            return CreateMessagePair(master, request, response);
+            return await ExecuteWithTimingAsync<ReadHoldingInputRegistersRequest, ReadHoldingInputRegistersResponse>(master, request, cancellationToken).ConfigureAwait(false);
         }
 
         #endregion
 
         #region WriteSingleCoil / WriteSingleRegister WithResp
 
-        /// <summary>Write single coil and return the request/response pair.</summary>
+        /// <summary>Write single coil and return the request/response pair with frame bytes and timing.</summary>
         public static NModbusMessage<WriteSingleCoilRequestResponse, WriteSingleCoilRequestResponse> WriteSingleCoilWithResp(
             this IModbusMaster master, byte slaveAddress, ushort coilAddress, bool value)
         {
             var request = new WriteSingleCoilRequestResponse(slaveAddress, coilAddress, value);
-            var response = master.Transport.UnicastMessage<WriteSingleCoilRequestResponse>(request);
-            return CreateMessagePair(master, request, response);
+            return ExecuteWithTiming<WriteSingleCoilRequestResponse, WriteSingleCoilRequestResponse>(master, request);
         }
 
-        /// <summary>Async write single coil and return the request/response pair.</summary>
+        /// <summary>Async write single coil and return the request/response pair with frame bytes and timing.</summary>
         public static async Task<NModbusMessage<WriteSingleCoilRequestResponse, WriteSingleCoilRequestResponse>> WriteSingleCoilWithRespAsync(
             this IModbusMaster master, byte slaveAddress, ushort coilAddress, bool value,
             CancellationToken cancellationToken = default)
         {
             var request = new WriteSingleCoilRequestResponse(slaveAddress, coilAddress, value);
-            var response = await master.Transport.UnicastMessageAsync<WriteSingleCoilRequestResponse>(request, cancellationToken).ConfigureAwait(false);
-            return CreateMessagePair(master, request, response);
+            return await ExecuteWithTimingAsync<WriteSingleCoilRequestResponse, WriteSingleCoilRequestResponse>(master, request, cancellationToken).ConfigureAwait(false);
         }
 
-        /// <summary>Write single register and return the request/response pair.</summary>
+        /// <summary>Write single register and return the request/response pair with frame bytes and timing.</summary>
         public static NModbusMessage<WriteSingleRegisterRequestResponse, WriteSingleRegisterRequestResponse> WriteSingleRegisterWithResp(
             this IModbusMaster master, byte slaveAddress, ushort registerAddress, ushort value)
         {
             var request = new WriteSingleRegisterRequestResponse(slaveAddress, registerAddress, value);
-            var response = master.Transport.UnicastMessage<WriteSingleRegisterRequestResponse>(request);
-            return CreateMessagePair(master, request, response);
+            return ExecuteWithTiming<WriteSingleRegisterRequestResponse, WriteSingleRegisterRequestResponse>(master, request);
         }
 
-        /// <summary>Async write single register and return the request/response pair.</summary>
+        /// <summary>Async write single register and return the request/response pair with frame bytes and timing.</summary>
         public static async Task<NModbusMessage<WriteSingleRegisterRequestResponse, WriteSingleRegisterRequestResponse>> WriteSingleRegisterWithRespAsync(
             this IModbusMaster master, byte slaveAddress, ushort registerAddress, ushort value,
             CancellationToken cancellationToken = default)
         {
             var request = new WriteSingleRegisterRequestResponse(slaveAddress, registerAddress, value);
-            var response = await master.Transport.UnicastMessageAsync<WriteSingleRegisterRequestResponse>(request, cancellationToken).ConfigureAwait(false);
-            return CreateMessagePair(master, request, response);
+            return await ExecuteWithTimingAsync<WriteSingleRegisterRequestResponse, WriteSingleRegisterRequestResponse>(master, request, cancellationToken).ConfigureAwait(false);
         }
 
         #endregion
 
         #region WriteMultipleRegisters / WriteMultipleCoils WithResp
 
-        /// <summary>Write multiple registers and return the request/response pair.</summary>
+        /// <summary>Write multiple registers and return the request/response pair with frame bytes and timing.</summary>
         public static NModbusMessage<WriteMultipleRegistersRequest, WriteMultipleRegistersResponse> WriteMultipleRegistersWithResp(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, ushort[] data)
         {
             ValidateData(data, 123);
             var request = new WriteMultipleRegistersRequest(slaveAddress, startAddress, new RegisterCollection(data));
-            var response = master.Transport.UnicastMessage<WriteMultipleRegistersResponse>(request);
-            return CreateMessagePair(master, request, response);
+            return ExecuteWithTiming<WriteMultipleRegistersRequest, WriteMultipleRegistersResponse>(master, request);
         }
 
-        /// <summary>Async write multiple registers and return the request/response pair.</summary>
+        /// <summary>Async write multiple registers and return the request/response pair with frame bytes and timing.</summary>
         public static async Task<NModbusMessage<WriteMultipleRegistersRequest, WriteMultipleRegistersResponse>> WriteMultipleRegistersWithRespAsync(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, ushort[] data,
             CancellationToken cancellationToken = default)
         {
             ValidateData(data, 123);
             var request = new WriteMultipleRegistersRequest(slaveAddress, startAddress, new RegisterCollection(data));
-            var response = await master.Transport.UnicastMessageAsync<WriteMultipleRegistersResponse>(request, cancellationToken).ConfigureAwait(false);
-            return CreateMessagePair(master, request, response);
+            return await ExecuteWithTimingAsync<WriteMultipleRegistersRequest, WriteMultipleRegistersResponse>(master, request, cancellationToken).ConfigureAwait(false);
         }
 
-        /// <summary>Write multiple coils and return the request/response pair.</summary>
+        /// <summary>Write multiple coils and return the request/response pair with frame bytes and timing.</summary>
         public static NModbusMessage<WriteMultipleCoilsRequest, WriteMultipleCoilsResponse> WriteMultipleCoilsWithResp(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, bool[] data)
         {
             ValidateData(data, 1968);
             var request = new WriteMultipleCoilsRequest(slaveAddress, startAddress, new DiscreteCollection(data));
-            var response = master.Transport.UnicastMessage<WriteMultipleCoilsResponse>(request);
-            return CreateMessagePair(master, request, response);
+            return ExecuteWithTiming<WriteMultipleCoilsRequest, WriteMultipleCoilsResponse>(master, request);
         }
 
-        /// <summary>Async write multiple coils and return the request/response pair.</summary>
+        /// <summary>Async write multiple coils and return the request/response pair with frame bytes and timing.</summary>
         public static async Task<NModbusMessage<WriteMultipleCoilsRequest, WriteMultipleCoilsResponse>> WriteMultipleCoilsWithRespAsync(
             this IModbusMaster master, byte slaveAddress, ushort startAddress, bool[] data,
             CancellationToken cancellationToken = default)
         {
             ValidateData(data, 1968);
             var request = new WriteMultipleCoilsRequest(slaveAddress, startAddress, new DiscreteCollection(data));
-            var response = await master.Transport.UnicastMessageAsync<WriteMultipleCoilsResponse>(request, cancellationToken).ConfigureAwait(false);
-            return CreateMessagePair(master, request, response);
+            return await ExecuteWithTimingAsync<WriteMultipleCoilsRequest, WriteMultipleCoilsResponse>(master, request, cancellationToken).ConfigureAwait(false);
         }
 
         #endregion
 
         #region ReadWriteMultipleRegisters WithResp
 
-        /// <summary>Read/write multiple registers and return the request/response pair.</summary>
+        /// <summary>Read/write multiple registers and return the request/response pair with frame bytes and timing.</summary>
         public static NModbusMessage<ReadWriteMultipleRegistersRequest, ReadHoldingInputRegistersResponse> ReadWriteMultipleRegistersWithResp(
             this IModbusMaster master, byte slaveAddress,
             ushort startReadAddress, ushort numberOfPointsToRead,
@@ -596,11 +581,10 @@ namespace NModbus.Extensions
             ValidateData(writeData, 121);
             var request = new ReadWriteMultipleRegistersRequest(
                 slaveAddress, startReadAddress, numberOfPointsToRead, startWriteAddress, new RegisterCollection(writeData));
-            var response = master.Transport.UnicastMessage<ReadHoldingInputRegistersResponse>(request);
-            return CreateMessagePair(master, request, response);
+            return ExecuteWithTiming<ReadWriteMultipleRegistersRequest, ReadHoldingInputRegistersResponse>(master, request);
         }
 
-        /// <summary>Async read/write multiple registers and return the request/response pair.</summary>
+        /// <summary>Async read/write multiple registers and return the request/response pair with frame bytes and timing.</summary>
         public static async Task<NModbusMessage<ReadWriteMultipleRegistersRequest, ReadHoldingInputRegistersResponse>> ReadWriteMultipleRegistersWithRespAsync(
             this IModbusMaster master, byte slaveAddress,
             ushort startReadAddress, ushort numberOfPointsToRead,
@@ -611,53 +595,52 @@ namespace NModbus.Extensions
             ValidateData(writeData, 121);
             var request = new ReadWriteMultipleRegistersRequest(
                 slaveAddress, startReadAddress, numberOfPointsToRead, startWriteAddress, new RegisterCollection(writeData));
-            var response = await master.Transport.UnicastMessageAsync<ReadHoldingInputRegistersResponse>(request, cancellationToken).ConfigureAwait(false);
-            return CreateMessagePair(master, request, response);
-        }
-
-        #endregion
-
-        #region Frame / Hex Helpers
-
-        /// <summary>Get the raw message frame bytes.</summary>
-        public static byte[] GetMessageFrame(this IModbusMaster master, IModbusMessage message)
-        {
-            return master.Transport.BuildMessageFrame(message);
-        }
-
-        /// <summary>Get the message frame as a hex string (e.g. "01 03 00 00 00 0A C5 CD").</summary>
-        public static string GetMessageHex(this IModbusMaster master, IModbusMessage message)
-        {
-            var data = master.Transport.BuildMessageFrame(message);
-            // Convert.ToHexString returns uppercase without separators; insert spaces
-            var hex = Convert.ToHexString(data);
-            return string.Create(hex.Length + hex.Length / 2, hex, (dst, src) =>
-            {
-                int di = 0;
-                for (int si = 0; si < src.Length; si += 2)
-                {
-                    if (di > 0) dst[di++] = ' ';
-                    dst[di++] = src[si];
-                    dst[di++] = src[si + 1];
-                }
-            });
+            return await ExecuteWithTimingAsync<ReadWriteMultipleRegistersRequest, ReadHoldingInputRegistersResponse>(master, request, cancellationToken).ConfigureAwait(false);
         }
 
         #endregion
 
         #region Private Helpers
 
-        private static NModbusMessage<TReq, TResp> CreateMessagePair<TReq, TResp>(
-            IModbusMaster master, TReq request, TResp response)
+        private static NModbusMessage<TReq, TResp> ExecuteWithTiming<TReq, TResp>(
+            IModbusMaster master, TReq request)
             where TReq : IModbusMessage
-            where TResp : IModbusMessage
+            where TResp : IModbusMessage, new()
         {
+            var timestamp = DateTime.UtcNow;
+            var sw = Stopwatch.StartNew();
+            var response = master.Transport.UnicastMessage<TResp>(request);
+            sw.Stop();
+
             return new NModbusMessage<TReq, TResp>
             {
                 Request = request,
-                RequestHex = master.GetMessageHex(request),
                 Response = response,
-                ResponseHex = master.GetMessageHex(response)
+                RequestFrame = master.Transport.BuildMessageFrame(request),
+                ResponseFrame = master.Transport.BuildMessageFrame(response),
+                Timestamp = timestamp,
+                Elapsed = sw.Elapsed
+            };
+        }
+
+        private static async Task<NModbusMessage<TReq, TResp>> ExecuteWithTimingAsync<TReq, TResp>(
+            IModbusMaster master, TReq request, CancellationToken cancellationToken)
+            where TReq : IModbusMessage
+            where TResp : IModbusMessage, new()
+        {
+            var timestamp = DateTime.UtcNow;
+            var sw = Stopwatch.StartNew();
+            var response = await master.Transport.UnicastMessageAsync<TResp>(request, cancellationToken).ConfigureAwait(false);
+            sw.Stop();
+
+            return new NModbusMessage<TReq, TResp>
+            {
+                Request = request,
+                Response = response,
+                RequestFrame = master.Transport.BuildMessageFrame(request),
+                ResponseFrame = master.Transport.BuildMessageFrame(response),
+                Timestamp = timestamp,
+                Elapsed = sw.Elapsed
             };
         }
 
