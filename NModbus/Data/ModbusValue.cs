@@ -142,15 +142,15 @@ namespace NModbus.Data
         /// </summary>
         public object ToObject() => _type switch
         {
-            1 => _intVal != 0,
-            2 => (short)_intVal,
-            3 => (ushort)_intVal,
-            4 => (int)_intVal,
-            5 => (uint)_intVal,
-            6 => _intVal,
-            7 => _uintVal,
-            8 => (float)_dblVal,
-            9 => _dblVal,
+            1 => (object)(_intVal != 0),
+            2 => (object)(short)_intVal,
+            3 => (object)(ushort)_intVal,
+            4 => (object)(int)_intVal,
+            5 => (object)(uint)_intVal,
+            6 => (object)_intVal,
+            7 => (object)_uintVal,
+            8 => (object)(float)_dblVal,
+            9 => (object)_dblVal,
             _ => throw new InvalidOperationException("ModbusValue is empty.")
         };
 
