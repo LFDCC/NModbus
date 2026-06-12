@@ -23,17 +23,46 @@ namespace NModbus.Extensions
             { ModbusFunctionCodes.ReadInputRegisters, 121 }
         };
 
-        #region BatchRead
+        #region BatchRead (zero-allocation with ModbusValue)
 
         /// <summary>
-        ///     Batch read multiple addresses with different data types in a single pass.
-        ///     Automatically splits into multiple requests when addresses exceed MaxLength.
+        ///     Batch read — zero boxing version. Returns ModbusValue struct (inline in dictionary).
+        ///     Use <c>result[addr].ToUInt16()</c> / <c>.ToInt32()</c> etc. to extract typed values.
         /// </summary>
-        /// <param name="master">The Modbus master.</param>
-        /// <param name="addressList">Dictionary of address to data type.</param>
-        /// <param name="slaveAddress">Slave address.</param>
-        /// <param name="functionCode">Function code (0x01-0x04).</param>
-        /// <returns>Dictionary of address to interpreted value.</returns>
+        public static Dictionary<ushort, ModbusValue> BatchReadValue(
+            this IModbusMaster master,
+            Dictionary<ushort, DataTypeEnum> addressList,
+            byte slaveAddress,
+            byte functionCode)
+        {
+            var result = new Dictionary<ushort, ModbusValue>();
+            BatchReadCore(master, addressList, slaveAddress, functionCode,
+                (addr, val) => result.Add(addr, val));
+            return result;
+        }
+
+        /// <summary>Async version of <see cref="BatchReadValue"/>.</summary>
+        public static async Task<Dictionary<ushort, ModbusValue>> BatchReadValueAsync(
+            this IModbusMaster master,
+            Dictionary<ushort, DataTypeEnum> addressList,
+            byte slaveAddress,
+            byte functionCode,
+            CancellationToken cancellationToken = default)
+        {
+            var result = new Dictionary<ushort, ModbusValue>();
+            await BatchReadCoreAsync(master, addressList, slaveAddress, functionCode,
+                (addr, val) => result.Add(addr, val), cancellationToken).ConfigureAwait(false);
+            return result;
+        }
+
+        #endregion
+
+        #region BatchRead (backward compatible with boxing)
+
+        /// <summary>
+        ///     Batch read — backward compatible version. Returns boxed values.
+        ///     For zero-allocation, use <see cref="BatchReadValue"/> instead.
+        /// </summary>
         public static Dictionary<ushort, object> BatchRead(
             this IModbusMaster master,
             Dictionary<ushort, DataTypeEnum> addressList,
@@ -41,74 +70,12 @@ namespace NModbus.Extensions
             byte functionCode)
         {
             var result = new Dictionary<ushort, object>();
-            var minAddr = addressList.Min(t => t.Key);
-            var maxAddr = addressList.Max(t => t.Key);
-
-            while (maxAddr >= minAddr)
-            {
-                var readMaxLen = FuncMaxLenDict[functionCode];
-                var list = addressList.Where(t => t.Key >= minAddr && t.Key < minAddr + readMaxLen).ToList();
-                if (list.Count == 0)
-                {
-                    minAddr += readMaxLen;
-                    continue;
-                }
-
-                // Calculate actual read length based on the last address's data type
-                var lastItem = list.OrderByDescending(t => t.Key).First();
-                var readLength = lastItem.Value switch
-                {
-                    DataTypeEnum.Bool or DataTypeEnum.Int16 or DataTypeEnum.UInt16
-                        => lastItem.Key + 1 - minAddr,
-                    DataTypeEnum.Int32 or DataTypeEnum.UInt32 or DataTypeEnum.Float
-                        => lastItem.Key + 2 - minAddr,
-                    DataTypeEnum.Int64 or DataTypeEnum.UInt64 or DataTypeEnum.Double
-                        => lastItem.Key + 4 - minAddr,
-                    _ => throw new NotSupportedException($"BatchRead unsupported type: {lastItem.Value}")
-                };
-
-                var message = master.ReadWithResp(slaveAddress, (ushort)minAddr, (ushort)readLength, functionCode);
-
-                if (message.Response is ReadCoilsInputsResponse coilsResp)
-                {
-                    for (var i = 0; i < list.Count; i++)
-                    {
-                        var item = list[i];
-                        result.Add(item.Key, coilsResp.Data[item.Key - minAddr]);
-                    }
-                }
-                else if (message.Response is ReadHoldingInputRegistersResponse regsResp)
-                {
-                    var data = regsResp.Data.TakeToArray(readLength);
-                    for (var i = 0; i < list.Count; i++)
-                    {
-                        var item = list[i];
-                        var startIndex = item.Key - minAddr;
-                        var obj = item.Value switch
-                        {
-                            DataTypeEnum.Int16 => RegisterConverter.ReadInt16(data, startIndex),
-                            DataTypeEnum.UInt16 => RegisterConverter.ReadUInt16(data, startIndex),
-                            DataTypeEnum.Int32 => RegisterConverter.ReadInt32(data, startIndex),
-                            DataTypeEnum.UInt32 => RegisterConverter.ReadUInt32(data, startIndex),
-                            DataTypeEnum.Int64 => RegisterConverter.ReadInt64(data, startIndex),
-                            DataTypeEnum.UInt64 => RegisterConverter.ReadUInt64(data, startIndex),
-                            DataTypeEnum.Float => RegisterConverter.ReadFloat(data, startIndex),
-                            DataTypeEnum.Double => (object)RegisterConverter.ReadDouble(data, startIndex),
-                            _ => throw new NotSupportedException($"BatchRead unsupported type: {item.Value}")
-                        };
-                        result.Add(item.Key, obj);
-                    }
-                }
-
-                minAddr += (ushort)readLength;
-            }
-
+            BatchReadCore(master, addressList, slaveAddress, functionCode,
+                (addr, val) => result.Add(addr, val.ToObject()));
             return result;
         }
 
-        /// <summary>
-        ///     Asynchronously batch read multiple addresses with different data types.
-        /// </summary>
+        /// <summary>Async version of <see cref="BatchRead"/>.</summary>
         public static async Task<Dictionary<ushort, object>> BatchReadAsync(
             this IModbusMaster master,
             Dictionary<ushort, DataTypeEnum> addressList,
@@ -116,70 +83,130 @@ namespace NModbus.Extensions
             byte functionCode,
             CancellationToken cancellationToken = default)
         {
-            // Use async transport path
             var result = new Dictionary<ushort, object>();
-            var minAddr = addressList.Min(t => t.Key);
-            var maxAddr = addressList.Max(t => t.Key);
-
-            while (maxAddr >= minAddr)
-            {
-                var readMaxLen = FuncMaxLenDict[functionCode];
-                var list = addressList.Where(t => t.Key >= minAddr && t.Key < minAddr + readMaxLen).ToList();
-                if (list.Count == 0)
-                {
-                    minAddr += readMaxLen;
-                    continue;
-                }
-
-                var lastItem = list.OrderByDescending(t => t.Key).First();
-                var readLength = lastItem.Value switch
-                {
-                    DataTypeEnum.Bool or DataTypeEnum.Int16 or DataTypeEnum.UInt16
-                        => lastItem.Key + 1 - minAddr,
-                    DataTypeEnum.Int32 or DataTypeEnum.UInt32 or DataTypeEnum.Float
-                        => lastItem.Key + 2 - minAddr,
-                    DataTypeEnum.Int64 or DataTypeEnum.UInt64 or DataTypeEnum.Double
-                        => lastItem.Key + 4 - minAddr,
-                    _ => throw new NotSupportedException($"BatchRead unsupported type: {lastItem.Value}")
-                };
-
-                var message = await master.ReadWithRespAsync(slaveAddress, (ushort)minAddr, (ushort)readLength, functionCode, cancellationToken).ConfigureAwait(false);
-
-                if (message.Response is ReadCoilsInputsResponse coilsResp)
-                {
-                    for (var i = 0; i < list.Count; i++)
-                    {
-                        var item = list[i];
-                        result.Add(item.Key, coilsResp.Data[item.Key - minAddr]);
-                    }
-                }
-                else if (message.Response is ReadHoldingInputRegistersResponse regsResp)
-                {
-                    var data = regsResp.Data.TakeToArray(readLength);
-                    for (var i = 0; i < list.Count; i++)
-                    {
-                        var item = list[i];
-                        var startIndex = item.Key - minAddr;
-                        var obj = item.Value switch
-                        {
-                            DataTypeEnum.Int16 => RegisterConverter.ReadInt16(data, startIndex),
-                            DataTypeEnum.UInt16 => RegisterConverter.ReadUInt16(data, startIndex),
-                            DataTypeEnum.Int32 => RegisterConverter.ReadInt32(data, startIndex),
-                            DataTypeEnum.UInt32 => RegisterConverter.ReadUInt32(data, startIndex),
-                            DataTypeEnum.Int64 => RegisterConverter.ReadInt64(data, startIndex),
-                            DataTypeEnum.UInt64 => RegisterConverter.ReadUInt64(data, startIndex),
-                            DataTypeEnum.Float => RegisterConverter.ReadFloat(data, startIndex),
-                            DataTypeEnum.Double => (object)RegisterConverter.ReadDouble(data, startIndex),
-                            _ => throw new NotSupportedException($"BatchRead unsupported type: {item.Value}")
-                        };
-                        result.Add(item.Key, obj);
-                    }
-                }
-
-                minAddr += (ushort)readLength;
-            }
-
+            await BatchReadCoreAsync(master, addressList, slaveAddress, functionCode,
+                (addr, val) => result.Add(addr, val.ToObject()), cancellationToken).ConfigureAwait(false);
             return result;
+        }
+
+        #endregion
+
+        #region BatchRead Core (shared logic)
+
+        private static void BatchReadCore(
+            IModbusMaster master,
+            Dictionary<ushort, DataTypeEnum> addressList,
+            byte slaveAddress,
+            byte functionCode,
+            Action<ushort, ModbusValue> addResult)
+        {
+            int readMaxLen = FuncMaxLenDict[functionCode];
+            var sorted = addressList.OrderBy(t => t.Key).ToList();
+            int cursor = 0;
+
+            while (cursor < sorted.Count)
+            {
+                int chunkStart = sorted[cursor].Key;
+                var chunkItems = new List<KeyValuePair<ushort, DataTypeEnum>>();
+
+                while (cursor < sorted.Count && sorted[cursor].Key < chunkStart + readMaxLen)
+                {
+                    chunkItems.Add(sorted[cursor]);
+                    cursor++;
+                }
+
+                if (chunkItems.Count == 0) continue;
+
+                var lastItem = chunkItems[^1];
+                int readLength = GetReadLength(lastItem, chunkStart);
+                if (readLength > ushort.MaxValue) readLength = ushort.MaxValue;
+
+                var message = master.ReadWithResp(slaveAddress, (ushort)chunkStart, (ushort)readLength, functionCode);
+                ExtractValues(message.Response, chunkItems, chunkStart, readLength, addResult);
+            }
+        }
+
+        private static async Task BatchReadCoreAsync(
+            IModbusMaster master,
+            Dictionary<ushort, DataTypeEnum> addressList,
+            byte slaveAddress,
+            byte functionCode,
+            Action<ushort, ModbusValue> addResult,
+            CancellationToken cancellationToken)
+        {
+            int readMaxLen = FuncMaxLenDict[functionCode];
+            var sorted = addressList.OrderBy(t => t.Key).ToList();
+            int cursor = 0;
+
+            while (cursor < sorted.Count)
+            {
+                int chunkStart = sorted[cursor].Key;
+                var chunkItems = new List<KeyValuePair<ushort, DataTypeEnum>>();
+
+                while (cursor < sorted.Count && sorted[cursor].Key < chunkStart + readMaxLen)
+                {
+                    chunkItems.Add(sorted[cursor]);
+                    cursor++;
+                }
+
+                if (chunkItems.Count == 0) continue;
+
+                var lastItem = chunkItems[^1];
+                int readLength = GetReadLength(lastItem, chunkStart);
+                if (readLength > ushort.MaxValue) readLength = ushort.MaxValue;
+
+                var message = await master.ReadWithRespAsync(slaveAddress, (ushort)chunkStart, (ushort)readLength, functionCode, cancellationToken).ConfigureAwait(false);
+                ExtractValues(message.Response, chunkItems, chunkStart, readLength, addResult);
+            }
+        }
+
+        private static int GetReadLength(KeyValuePair<ushort, DataTypeEnum> lastItem, int chunkStart)
+        {
+            return lastItem.Value switch
+            {
+                DataTypeEnum.Bool or DataTypeEnum.Int16 or DataTypeEnum.UInt16
+                    => lastItem.Key + 1 - chunkStart,
+                DataTypeEnum.Int32 or DataTypeEnum.UInt32 or DataTypeEnum.Float
+                    => lastItem.Key + 2 - chunkStart,
+                DataTypeEnum.Int64 or DataTypeEnum.UInt64 or DataTypeEnum.Double
+                    => lastItem.Key + 4 - chunkStart,
+                _ => throw new NotSupportedException($"BatchRead unsupported type: {lastItem.Value}")
+            };
+        }
+
+        private static void ExtractValues(
+            IModbusMessage response,
+            List<KeyValuePair<ushort, DataTypeEnum>> chunkItems,
+            int chunkStart,
+            int readLength,
+            Action<ushort, ModbusValue> addResult)
+        {
+            if (response is ReadCoilsInputsResponse coilsResp)
+            {
+                foreach (var item in chunkItems)
+                    addResult(item.Key, ModbusValue.From(coilsResp.Data[item.Key - chunkStart]));
+            }
+            else if (response is ReadHoldingInputRegistersResponse regsResp)
+            {
+                var data = regsResp.Data.TakeToArray(readLength);
+                foreach (var item in chunkItems)
+                {
+                    int si = item.Key - chunkStart;
+                    ModbusValue val = item.Value switch
+                    {
+                        DataTypeEnum.Int16 => ModbusValue.From(RegisterConverter.ReadInt16(data, si)),
+                        DataTypeEnum.UInt16 => ModbusValue.From(RegisterConverter.ReadUInt16(data, si)),
+                        DataTypeEnum.Int32 => ModbusValue.From(RegisterConverter.ReadInt32(data, si)),
+                        DataTypeEnum.UInt32 => ModbusValue.From(RegisterConverter.ReadUInt32(data, si)),
+                        DataTypeEnum.Int64 => ModbusValue.From(RegisterConverter.ReadInt64(data, si)),
+                        DataTypeEnum.UInt64 => ModbusValue.From(RegisterConverter.ReadUInt64(data, si)),
+                        DataTypeEnum.Float => ModbusValue.From(RegisterConverter.ReadFloat(data, si)),
+                        DataTypeEnum.Double => ModbusValue.From(RegisterConverter.ReadDouble(data, si)),
+                        _ => throw new NotSupportedException($"BatchRead unsupported type: {item.Value}")
+                    };
+                    addResult(item.Key, val);
+                }
+            }
         }
 
         #endregion
@@ -224,6 +251,43 @@ namespace NModbus.Extensions
         }
 
         /// <summary>
+        ///     Async batch write coils. Automatically merges consecutive addresses.
+        /// </summary>
+        public static async Task<List<NModbusMessage<WriteMultipleCoilsRequest, WriteMultipleCoilsResponse>>> BatchWriteCoilsAsync(
+            this IModbusMaster master,
+            Dictionary<ushort, bool> addressList,
+            byte slaveAddress,
+            CancellationToken cancellationToken = default)
+        {
+            var messages = new List<NModbusMessage<WriteMultipleCoilsRequest, WriteMultipleCoilsResponse>>();
+            if (addressList == null || addressList.Count == 0)
+                return messages;
+
+            const int maxBatch = 1968;
+            var sorted = addressList.OrderBy(t => t.Key).ToList();
+            var i = 0;
+
+            while (i < sorted.Count)
+            {
+                var groupStart = sorted[i].Key;
+                var groupValues = new List<bool>();
+
+                while (i < sorted.Count
+                       && sorted[i].Key == groupStart + groupValues.Count
+                       && groupValues.Count < maxBatch)
+                {
+                    groupValues.Add(sorted[i].Value);
+                    i++;
+                }
+
+                var msg = await master.WriteMultipleCoilsWithRespAsync(slaveAddress, groupStart, groupValues.ToArray(), cancellationToken).ConfigureAwait(false);
+                messages.Add(msg);
+            }
+
+            return messages;
+        }
+
+        /// <summary>
         ///     Batch write registers. Automatically merges consecutive addresses into WriteMultipleRegisters,
         ///     non-consecutive addresses are written in separate transactions.
         /// </summary>
@@ -256,6 +320,45 @@ namespace NModbus.Extensions
                 }
 
                 var msg = master.WriteMultipleRegistersWithResp(slaveAddress, groupStart, groupRegisters.ToArray());
+                messages.Add(msg);
+            }
+
+            return messages;
+        }
+
+        /// <summary>
+        ///     Async batch write registers. Automatically merges consecutive addresses.
+        /// </summary>
+        public static async Task<List<NModbusMessage<WriteMultipleRegistersRequest, WriteMultipleRegistersResponse>>> BatchWriteRegistersAsync(
+            this IModbusMaster master,
+            Dictionary<ushort, ushort> addressList,
+            byte slaveAddress,
+            CancellationToken cancellationToken = default)
+        {
+            var messages = new List<NModbusMessage<WriteMultipleRegistersRequest, WriteMultipleRegistersResponse>>();
+            if (addressList == null || addressList.Count == 0)
+                return messages;
+
+            const int maxBatch = 123;
+            var sorted = addressList.OrderBy(t => t.Key).ToList();
+            var i = 0;
+
+            while (i < sorted.Count)
+            {
+                var groupStart = sorted[i].Key;
+                var nextExpected = groupStart;
+                var groupRegisters = new List<ushort>();
+
+                while (i < sorted.Count
+                       && sorted[i].Key == nextExpected
+                       && groupRegisters.Count < maxBatch)
+                {
+                    groupRegisters.Add(sorted[i].Value);
+                    nextExpected = (ushort)(sorted[i].Key + 1);
+                    i++;
+                }
+
+                var msg = await master.WriteMultipleRegistersWithRespAsync(slaveAddress, groupStart, groupRegisters.ToArray(), cancellationToken).ConfigureAwait(false);
                 messages.Add(msg);
             }
 
@@ -526,7 +629,18 @@ namespace NModbus.Extensions
         public static string GetMessageHex(this IModbusMaster master, IModbusMessage message)
         {
             var data = master.Transport.BuildMessageFrame(message);
-            return BitConverter.ToString(data).Replace("-", " ");
+            // Convert.ToHexString returns uppercase without separators; insert spaces
+            var hex = Convert.ToHexString(data);
+            return string.Create(hex.Length + hex.Length / 2, hex, (dst, src) =>
+            {
+                int di = 0;
+                for (int si = 0; si < src.Length; si += 2)
+                {
+                    if (di > 0) dst[di++] = ' ';
+                    dst[di++] = src[si];
+                    dst[di++] = src[si + 1];
+                }
+            });
         }
 
         #endregion
