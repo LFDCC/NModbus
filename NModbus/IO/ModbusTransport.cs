@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 using NModbus.Logging;
 using NModbus.Message;
@@ -16,6 +17,7 @@ namespace NModbus.IO
     public abstract class ModbusTransport : IModbusTransport
     {
         private readonly object _syncLock = new object();
+        protected readonly SemaphoreSlim _asyncLock = new SemaphoreSlim(1, 1);
         private int _retries = Modbus.DefaultRetries;
         private int _waitToRetryMilliseconds = Modbus.DefaultWaitToRetryMilliseconds;
         private IStreamResource _streamResource;
@@ -126,6 +128,129 @@ namespace NModbus.IO
             {
                 Write(message);
             }
+        }
+
+        /// <summary>
+        ///     Asynchronously sends a broadcast message (address 0) without reading any response.
+        /// </summary>
+        public virtual async Task BroadcastWriteAsync(IModbusMessage message, CancellationToken cancellationToken = default)
+        {
+            await _asyncLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                await WriteAsync(message, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _asyncLock.Release();
+            }
+        }
+
+        /// <summary>
+        ///     Asynchronously sends a unicast message and returns the response.
+        /// </summary>
+        public virtual async Task<T> UnicastMessageAsync<T>(IModbusMessage message, CancellationToken cancellationToken = default)
+            where T : IModbusMessage, new()
+        {
+            IModbusMessage response = null;
+            int attempt = 1;
+            bool success = false;
+
+            do
+            {
+                try
+                {
+                    await _asyncLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+                    try
+                    {
+                        await WriteAsync(message, cancellationToken).ConfigureAwait(false);
+
+                        bool readAgain;
+                        do
+                        {
+                            readAgain = false;
+                            response = await ReadResponseAsync<T>(cancellationToken).ConfigureAwait(false);
+                            var exceptionResponse = response as SlaveExceptionResponse;
+
+                            if (exceptionResponse != null)
+                            {
+                                // if SlaveExceptionCode == ACKNOWLEDGE we retry reading the response without resubmitting request
+                                readAgain = exceptionResponse.SlaveExceptionCode == SlaveExceptionCodes.Acknowledge;
+
+                                if (readAgain)
+                                {
+                                    Logger.Debug($"Received ACKNOWLEDGE slave exception response, waiting {_waitToRetryMilliseconds} milliseconds and retrying to read response.");
+                                    await SleepAsync(WaitToRetryMilliseconds, cancellationToken).ConfigureAwait(false);
+                                }
+                                else
+                                {
+                                    throw new SlaveException(exceptionResponse);
+                                }
+                            }
+                            else if (ShouldRetryResponse(message, response))
+                            {
+                                readAgain = true;
+                            }
+                        }
+                        while (readAgain);
+                    }
+                    finally
+                    {
+                        _asyncLock.Release();
+                    }
+
+                    ValidateResponse(message, response);
+                    success = true;
+                }
+                catch (SlaveException se)
+                {
+                    if (se.SlaveExceptionCode != SlaveExceptionCodes.SlaveDeviceBusy)
+                    {
+                        throw;
+                    }
+
+                    if (SlaveBusyUsesRetryCount && attempt++ > _retries)
+                    {
+                        throw;
+                    }
+
+                    Logger.Warning($"Received SLAVE_DEVICE_BUSY exception response, waiting {_waitToRetryMilliseconds} milliseconds and resubmitting request.");
+
+                    await SleepAsync(WaitToRetryMilliseconds, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception e)
+                {
+                    if ((e is SocketException socketException && socketException.SocketErrorCode != SocketError.TimedOut)
+                        || (e.InnerException is SocketException innerSocketException && innerSocketException.SocketErrorCode != SocketError.TimedOut))
+                    {
+                        throw;
+                    }
+                    if (e is FormatException ||
+                        e is NotImplementedException ||
+                        e is TimeoutException ||
+                        e is IOException ||
+                        e is SocketException)
+                    {
+                        Logger.Error($"{e.GetType().Name}, {(_retries - attempt + 1)} retries remaining - {e}");
+
+                        if (attempt++ > _retries)
+                        {
+                            throw;
+                        }
+
+                        await SleepAsync(WaitToRetryMilliseconds, cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+            }
+            while (!success);
+
+            return (T)response;
         }
 
         public virtual T UnicastMessage<T>(IModbusMessage message)
@@ -312,6 +437,33 @@ namespace NModbus.IO
         public abstract void Write(IModbusMessage message);
 
         /// <summary>
+        ///     Asynchronously writes a message to the stream.
+        ///     Subclasses must override with true async I/O (e.g. StreamResource.WriteAsync).
+        /// </summary>
+        public abstract Task WriteAsync(IModbusMessage message, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        ///     Asynchronously reads a response from the stream.
+        ///     Subclasses must override with true async I/O (e.g. StreamResource.ReadAsync).
+        /// </summary>
+        public abstract Task<IModbusMessage> ReadResponseAsync<T>(CancellationToken cancellationToken = default)
+            where T : IModbusMessage, new();
+
+        /// <summary>
+        ///     Asynchronously reads a request from the stream.
+        ///     Subclasses must override with true async I/O (e.g. StreamResource.ReadAsync).
+        /// </summary>
+        public abstract Task<byte[]> ReadRequestAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        ///     Asynchronously delays for the specified number of milliseconds.
+        /// </summary>
+        protected static async Task SleepAsync(int millisecondsTimeout, CancellationToken cancellationToken)
+        {
+            await Task.Delay(millisecondsTimeout, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
         ///     Releases unmanaged and - optionally - managed resources
         /// </summary>
         /// <param name="disposing">
@@ -323,12 +475,13 @@ namespace NModbus.IO
             if (disposing)
             {
                 DisposableUtility.Dispose(ref _streamResource);
+                _asyncLock.Dispose();
             }
         }
 
         private static void Sleep(int millisecondsTimeout)
         {
-            Task.Delay(millisecondsTimeout).Wait();
+            Thread.Sleep(millisecondsTimeout);
         }
     }
 }

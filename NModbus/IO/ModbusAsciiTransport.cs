@@ -2,6 +2,8 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using NModbus.Logging;
 using NModbus.Utility;
 
@@ -70,6 +72,63 @@ namespace NModbus.IO
         public override void IgnoreResponse()
         {
             ReadRequestResponse();
+        }
+
+        public override async Task<byte[]> ReadRequestAsync(CancellationToken cancellationToken = default)
+        {
+            return await ReadRequestResponseAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        public override async Task<IModbusMessage> ReadResponseAsync<T>(CancellationToken cancellationToken = default)
+        {
+            byte[] frame = await ReadRequestResponseAsync(cancellationToken).ConfigureAwait(false);
+            return CreateResponse<T>(frame);
+        }
+
+        private async Task<byte[]> ReadRequestResponseAsync(CancellationToken cancellationToken = default)
+        {
+            // Read line asynchronously, removing frame start ':'
+            string frameHex = await ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            frameHex = frameHex.Substring(1);
+
+            // convert hex to bytes
+            byte[] frame = ModbusUtility.HexToBytes(frameHex);
+            Logger.Trace($"RX: {string.Join(", ", frame)}");
+
+            if (frame.Length < 3)
+            {
+                throw new IOException("Premature end of stream, message truncated.");
+            }
+
+            return frame;
+        }
+
+        private async Task<string> ReadLineAsync(CancellationToken cancellationToken = default)
+        {
+            var sb = new StringBuilder();
+            var buffer = new byte[1];
+
+            while (true)
+            {
+                int bytesRead = await StreamResource.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                if (bytesRead == 0)
+                {
+                    throw new IOException("End of stream while reading ASCII frame.");
+                }
+
+                char c = (char)buffer[0];
+                if (c == '\n')
+                {
+                    break;
+                }
+
+                if (c != '\r')
+                {
+                    sb.Append(c);
+                }
+            }
+
+            return sb.ToString();
         }
     }
 }

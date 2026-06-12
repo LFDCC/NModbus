@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -56,13 +57,13 @@ namespace NModbus.Utility
         /// <returns>IEEE 64 floating point value.</returns>
         public static double GetDouble(ushort b3, ushort b2, ushort b1, ushort b0)
         {
-            byte[] value = BitConverter.GetBytes(b0)
-                .Concat(BitConverter.GetBytes(b1))
-                .Concat(BitConverter.GetBytes(b2))
-                .Concat(BitConverter.GetBytes(b3))
-                .ToArray();
+            Span<byte> value = stackalloc byte[8];
+            BinaryPrimitives.WriteUInt16LittleEndian(value.Slice(0), b0);
+            BinaryPrimitives.WriteUInt16LittleEndian(value.Slice(2), b1);
+            BinaryPrimitives.WriteUInt16LittleEndian(value.Slice(4), b2);
+            BinaryPrimitives.WriteUInt16LittleEndian(value.Slice(6), b3);
 
-            return BitConverter.ToDouble(value, 0);
+            return BitConverter.ToDouble(value);
         }
 
         /// <summary>
@@ -73,11 +74,11 @@ namespace NModbus.Utility
         /// <returns>IEEE 32 floating point value.</returns>
         public static float GetSingle(ushort highOrderValue, ushort lowOrderValue)
         {
-            byte[] value = BitConverter.GetBytes(lowOrderValue)
-                .Concat(BitConverter.GetBytes(highOrderValue))
-                .ToArray();
+            Span<byte> value = stackalloc byte[4];
+            BinaryPrimitives.WriteUInt16LittleEndian(value.Slice(0), lowOrderValue);
+            BinaryPrimitives.WriteUInt16LittleEndian(value.Slice(2), highOrderValue);
 
-            return BitConverter.ToSingle(value, 0);
+            return BitConverter.ToSingle(value);
         }
 
         /// <summary>
@@ -85,11 +86,11 @@ namespace NModbus.Utility
         /// </summary>
         public static uint GetUInt32(ushort highOrderValue, ushort lowOrderValue)
         {
-            byte[] value = BitConverter.GetBytes(lowOrderValue)
-                .Concat(BitConverter.GetBytes(highOrderValue))
-                .ToArray();
+            Span<byte> value = stackalloc byte[4];
+            BinaryPrimitives.WriteUInt16LittleEndian(value.Slice(0), lowOrderValue);
+            BinaryPrimitives.WriteUInt16LittleEndian(value.Slice(2), highOrderValue);
 
-            return BitConverter.ToUInt32(value, 0);
+            return BitConverter.ToUInt32(value);
         }
 
         /// <summary>
@@ -133,7 +134,7 @@ namespace NModbus.Utility
 
             for (int i = 0; i < result.Length; i++)
             {
-                result[i] = (ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(networkBytes, i * 2));
+                result[i] = BinaryPrimitives.ReadUInt16BigEndian(networkBytes.AsSpan(i * 2));
             }
 
             return result;
@@ -156,14 +157,7 @@ namespace NModbus.Utility
                 throw new FormatException(Resources.HexCharacterCountNotEven);
             }
 
-            byte[] bytes = new byte[hex.Length / 2];
-
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
-            }
-
-            return bytes;
+            return Convert.FromHexString(hex);
         }
 
         /// <summary>
@@ -202,6 +196,20 @@ namespace NModbus.Utility
                 throw new ArgumentNullException(nameof(data));
             }
 
+            ushort crc = CalculateCrc(data.AsSpan());
+            byte[] result = new byte[2];
+            BinaryPrimitives.WriteUInt16LittleEndian(result, crc);
+            return result;
+        }
+
+        /// <summary>
+        ///     Calculate Cyclical Redundancy Check from a span of bytes.
+        ///     Uses the same table-based algorithm as the byte[] overload for performance.
+        /// </summary>
+        /// <param name="data">The data used in CRC.</param>
+        /// <returns>CRC value as a ushort.</returns>
+        public static ushort CalculateCrc(ReadOnlySpan<byte> data)
+        {
             ushort crc = ushort.MaxValue;
 
             foreach (byte b in data)
@@ -211,7 +219,88 @@ namespace NModbus.Utility
                 crc ^= CrcTable[tableIndex];
             }
 
-            return BitConverter.GetBytes(crc);
+            return crc;
+        }
+
+        /// <summary>
+        ///     Writes a CRC value into a destination span in little-endian byte order.
+        /// </summary>
+        /// <param name="destination">The destination span (must be at least 2 bytes).</param>
+        /// <param name="crc">The CRC value to write.</param>
+        public static void WriteCrc(Span<byte> destination, ushort crc)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(destination, crc);
+        }
+
+        /// <summary>
+        ///     Reads a UInt16 value from a span in big-endian byte order.
+        /// </summary>
+        /// <param name="source">The source span (must be at least 2 bytes).</param>
+        /// <returns>The UInt16 value in host byte order.</returns>
+        public static ushort ReadUInt16BigEndian(ReadOnlySpan<byte> source)
+        {
+            return BinaryPrimitives.ReadUInt16BigEndian(source);
+        }
+
+        /// <summary>
+        ///     Writes a UInt16 value into a span in big-endian byte order.
+        /// </summary>
+        /// <param name="destination">The destination span (must be at least 2 bytes).</param>
+        /// <param name="value">The UInt16 value to write.</param>
+        public static void WriteUInt16BigEndian(Span<byte> destination, ushort value)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(destination, value);
+        }
+
+        /// <summary>
+        ///     Converts big-endian bytes into host-order UInt16 values.
+        /// </summary>
+        /// <param name="source">The source span of big-endian bytes (length must be even).</param>
+        /// <param name="destination">The destination span for host-order UInt16 values.</param>
+        public static void NetworkBytesToHostUInt16(ReadOnlySpan<byte> source, Span<ushort> destination)
+        {
+            if (source.Length % 2 != 0)
+            {
+                throw new FormatException(Resources.NetworkBytesNotEven);
+            }
+
+            for (int i = 0; i < destination.Length; i++)
+            {
+                destination[i] = BinaryPrimitives.ReadUInt16BigEndian(source.Slice(i * 2));
+            }
+        }
+
+        /// <summary>
+        ///     Converts four bytes from a span into an IEEE 64 floating point format.
+        ///     Bytes are interpreted in little-endian order (low-order first).
+        /// </summary>
+        /// <param name="data">The source span (must be at least 8 bytes).</param>
+        /// <returns>IEEE 64 floating point value.</returns>
+        public static double GetDouble(ReadOnlySpan<byte> data)
+        {
+            return BitConverter.ToDouble(data);
+        }
+
+        /// <summary>
+        ///     Converts bytes from a span into an IEEE 32 floating point format.
+        ///     Bytes are interpreted in little-endian order (low-order first).
+        /// </summary>
+        /// <param name="data">The source span (must be at least 4 bytes).</param>
+        /// <returns>IEEE 32 floating point value.</returns>
+        public static float GetSingle(ReadOnlySpan<byte> data)
+        {
+            return BitConverter.ToSingle(data);
+        }
+
+        /// <summary>
+        ///     Converts bytes from a span into a UInt32.
+        ///     Bytes are interpreted in little-endian order (low-order first).
+        /// </summary>
+        /// <param name="data">The source span (must be at least 4 bytes).</param>
+        /// <returns>UInt32 value.</returns>
+        public static uint GetUInt32(ReadOnlySpan<byte> data)
+        {
+            return BitConverter.ToUInt32(data);
         }
     }
 }

@@ -1,6 +1,8 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO.Ports;
+using System.Threading;
+using System.Threading.Tasks;
 using NModbus.IO;
 
 namespace NModbus.Serial
@@ -51,6 +53,18 @@ namespace NModbus.Serial
         public void Write(byte[] buffer, int offset, int count)
         {
             _serialPort.Write(buffer, offset, count);
+        }
+
+        public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            // SerialPort.BaseStream returns a Stream that supports ReadAsync
+            return await _serialPort.BaseStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            // SerialPort.BaseStream returns a Stream that supports WriteAsync
+            await _serialPort.BaseStream.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
         }
 
         public void Dispose()

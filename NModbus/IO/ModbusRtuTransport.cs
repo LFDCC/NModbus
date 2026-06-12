@@ -2,6 +2,8 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using NModbus.Extensions;
 using NModbus.Logging;
 using NModbus.Utility;
@@ -70,19 +72,19 @@ namespace NModbus.IO
         public override byte[] BuildMessageFrame(IModbusMessage message)
         {
             var messageFrame = message.MessageFrame;
-            var crc = ModbusUtility.CalculateCrc(messageFrame);
-            var messageBody = new MemoryStream(messageFrame.Length + crc.Length);
+            ushort crc = ModbusUtility.CalculateCrc(messageFrame.AsSpan());
+            byte[] frame = new byte[messageFrame.Length + 2];
 
-            messageBody.Write(messageFrame, 0, messageFrame.Length);
-            messageBody.Write(crc, 0, crc.Length);
+            messageFrame.CopyTo(frame, 0);
+            ModbusUtility.WriteCrc(frame.AsSpan(messageFrame.Length), crc);
 
-            return messageBody.ToArray();
+            return frame;
         }
 
         public override bool ChecksumsMatch(IModbusMessage message, byte[] messageFrame)
         {
             ushort messageCrc = BitConverter.ToUInt16(messageFrame, messageFrame.Length - 2);
-            ushort calculatedCrc = BitConverter.ToUInt16(ModbusUtility.CalculateCrc(message.MessageFrame), 0);
+            ushort calculatedCrc = ModbusUtility.CalculateCrc(message.MessageFrame.AsSpan());
 
             return messageCrc == calculatedCrc;
         }
@@ -96,11 +98,69 @@ namespace NModbus.IO
             return CreateResponse<T>(frame);
         }
 
+        private async Task<byte[]> ReadResponseAsync(CancellationToken cancellationToken = default)
+        {
+            byte[] frameStart = await ReadAsync(ResponseFrameStartLength, cancellationToken).ConfigureAwait(false);
+            byte[] frameEnd = await ReadAsync(ResponseBytesToRead(frameStart), cancellationToken).ConfigureAwait(false);
+            byte[] frame = new byte[frameStart.Length + frameEnd.Length];
+
+            frameStart.CopyTo(frame, 0);
+            frameEnd.CopyTo(frame, frameStart.Length);
+
+            return frame;
+        }
+
+        public override async Task<IModbusMessage> ReadResponseAsync<T>(CancellationToken cancellationToken = default)
+        {
+            byte[] frame = await ReadResponseAsync(cancellationToken).ConfigureAwait(false);
+
+            Logger.LogFrameRx(frame);
+
+            return CreateResponse<T>(frame);
+        }
+
+        public override async Task<byte[]> ReadRequestAsync(CancellationToken cancellationToken = default)
+        {
+            byte[] frameStart = await ReadAsync(RequestFrameStartLength, cancellationToken).ConfigureAwait(false);
+            byte[] frameEnd = await ReadAsync(RequestBytesToRead(frameStart), cancellationToken).ConfigureAwait(false);
+            byte[] frame = new byte[frameStart.Length + frameEnd.Length];
+
+            frameStart.CopyTo(frame, 0);
+            frameEnd.CopyTo(frame, frameStart.Length);
+
+            Logger.LogFrameRx(frame);
+
+            return frame;
+        }
+
+        private async Task<byte[]> ReadAsync(int count, CancellationToken cancellationToken = default)
+        {
+            byte[] frameBytes = new byte[count];
+            int numBytesReadTotal = 0;
+
+            while (numBytesReadTotal != count)
+            {
+                int numBytesRead = await StreamResource.ReadAsync(frameBytes.AsMemory(numBytesReadTotal, count - numBytesReadTotal), cancellationToken).ConfigureAwait(false);
+
+                if (numBytesRead == 0)
+                {
+                    throw new IOException("Read resulted in 0 bytes returned.");
+                }
+
+                numBytesReadTotal += numBytesRead;
+            }
+
+            return frameBytes;
+        }
+
         private byte[] ReadResponse()
         {
             byte[] frameStart = Read(ResponseFrameStartLength);
             byte[] frameEnd = Read(ResponseBytesToRead(frameStart));
-            byte[] frame = frameStart.Concat(frameEnd).ToArray();
+            byte[] frame = new byte[frameStart.Length + frameEnd.Length];
+
+            frameStart.CopyTo(frame, 0);
+            frameEnd.CopyTo(frame, frameStart.Length);
 
             return frame;
         }
@@ -116,7 +176,10 @@ namespace NModbus.IO
         {
             byte[] frameStart = Read(RequestFrameStartLength);
             byte[] frameEnd = Read(RequestBytesToRead(frameStart));
-            byte[] frame = frameStart.Concat(frameEnd).ToArray();
+            byte[] frame = new byte[frameStart.Length + frameEnd.Length];
+
+            frameStart.CopyTo(frame, 0);
+            frameEnd.CopyTo(frame, frameStart.Length);
 
             Logger.LogFrameRx(frame);
 

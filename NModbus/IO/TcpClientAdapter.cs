@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 using NModbus.Unme.Common;
 
 namespace NModbus.IO
@@ -47,6 +48,16 @@ namespace NModbus.IO
         public void DiscardInBuffer()
         {
             _tcpClient.GetStream().Flush();
+        }
+
+        public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            return await _tcpClient.GetStream().ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await _tcpClient.GetStream().WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
         }
 
         public void Dispose()

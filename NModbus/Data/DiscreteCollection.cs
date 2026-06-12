@@ -117,5 +117,36 @@ namespace NModbus.Data
         {
             return string.Concat("{", string.Join(", ", this.Select(discrete => discrete ? "1" : "0").ToArray()), "}");
         }
+
+        /// <summary>
+        ///     Packs discrete bool values into bytes directly into the destination span.
+        ///     Same packing logic as the <see cref="NetworkBytes"/> property.
+        /// </summary>
+        /// <param name="destination">The destination span. Must be at least <see cref="ByteCount"/> bytes long.</param>
+        public void WriteNetworkBytes(Span<byte> destination)
+        {
+            destination.Slice(0, ByteCount).Clear();
+
+            for (int index = 0; index < _discretes.Count; index++)
+            {
+                if (_discretes[index])
+                {
+                    destination[index / BitsPerByte] |= (byte)(1 << (index % BitsPerByte));
+                }
+            }
+        }
+
+        /// <summary>
+        ///     Returns a new array containing the first <paramref name="count"/> discrete values.
+        ///     Avoids LINQ Take().ToArray() overhead.
+        /// </summary>
+        public bool[] TakeToArray(int count)
+        {
+            if (count > _discretes.Count) count = _discretes.Count;
+            var result = new bool[count];
+            for (int i = 0; i < count; i++)
+                result[i] = _discretes[i];
+            return result;
+        }
     }
 }

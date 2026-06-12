@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 using NModbus.Unme.Common;
 
 namespace NModbus.IO
@@ -21,8 +22,8 @@ namespace NModbus.IO
         }
 
         public int InfiniteTimeout => Timeout.Infinite;
-        public int ReadTimeout 
-        { 
+        public int ReadTimeout
+        {
             get => _socketClient.SendTimeout;
             set => _socketClient.SendTimeout = value;
 
@@ -40,15 +41,25 @@ namespace NModbus.IO
 
         public int Read(byte[] buffer, int offset, int size)
         {
-            
-            return _socketClient.Receive(buffer,offset,size,0);
+            return _socketClient.Receive(buffer, offset, size, 0);
         }
 
         public void Write(byte[] buffer, int offset, int size)
         {
-            _socketClient.Send(buffer,offset,size,0);
+            _socketClient.Send(buffer, offset, size, 0);
         }
 
+        public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            return await _socketClient.ReceiveAsync(buffer, SocketFlags.None, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await _socketClient.SendAsync(buffer, SocketFlags.None, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         public void Dispose()
         {

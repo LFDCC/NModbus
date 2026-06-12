@@ -1,8 +1,8 @@
-﻿using System;
+using System;
 using System.IO;
-using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 using NModbus.Unme.Common;
 
 namespace NModbus.IO
@@ -109,32 +109,64 @@ namespace NModbus.IO
             if (offset < 0)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(offset), 
+                    nameof(offset),
                     "Argument offset must be greater than or equal to 0.");
             }
 
             if (offset > buffer.Length)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(offset), 
+                    nameof(offset),
                     "Argument offset cannot be greater than the length of buffer.");
             }
 
             if (count < 0)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(count), 
+                    nameof(count),
                     "Argument count must be greater than or equal to 0.");
             }
 
             if (count > buffer.Length - offset)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(count), 
+                    nameof(count),
                     "Argument count cannot be greater than the length of buffer minus offset.");
             }
 
-            _udpClient.Client.Send(buffer.Skip(offset).Take(count).ToArray());
+            // Fix: use Send with offset/count directly instead of LINQ Skip/Take/ToArray
+            _udpClient.Client.Send(buffer, offset, count, SocketFlags.None);
+        }
+
+        public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_bufferOffset == 0)
+            {
+                var result = await _udpClient.Client.ReceiveAsync(_buffer, SocketFlags.None, cancellationToken)
+                    .ConfigureAwait(false);
+                _bufferOffset = result;
+            }
+
+            int count = buffer.Length;
+            if (_bufferOffset < count)
+            {
+                throw new IOException("Not enough bytes in the datagram.");
+            }
+
+            _buffer.AsSpan(0, count).CopyTo(buffer.Span);
+            _bufferOffset -= count;
+            if (_bufferOffset > 0)
+            {
+                _buffer.AsSpan(count, _bufferOffset).CopyTo(_buffer);
+            }
+
+            return count;
+        }
+
+        public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await _udpClient.Client.SendAsync(buffer, SocketFlags.None, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         public void Dispose()

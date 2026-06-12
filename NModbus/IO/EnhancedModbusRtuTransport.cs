@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using NModbus.Logging;
 using NModbus.Message;
 using NModbus.Utility;
@@ -60,6 +62,40 @@ namespace NModbus.IO
             else
             {
                 byte[] fullFrame = ReadStandardModbusResponse(frameStart);
+                Logger.LogFrameRx(fullFrame);
+                return CreateResponse<T>(fullFrame);
+            }
+        }
+
+        public override async Task<IModbusMessage> ReadResponseAsync<T>(CancellationToken cancellationToken = default)
+        {
+            byte[] frameStart = await ReadAsync(2, cancellationToken).ConfigureAwait(false); // [SlaveAddress][FunctionCode]
+
+            if (frameStart[1] == DeviceIdFunctionCode)
+            {
+                byte[] fullFrame = await ReadDeviceIdResponseFrameAsync(frameStart, cancellationToken).ConfigureAwait(false);
+                Logger.LogFrameRx(fullFrame);
+                return CreateResponse<T>(fullFrame);
+            }
+            else if ((frameStart[1] & 0x80) == 0x80)
+            {
+                // Error response: [SlaveAddr][FC|0x80][ExceptionCode][CRC][CRC]
+                byte exceptionCode = (await ReadAsync(1, cancellationToken).ConfigureAwait(false))[0];
+                byte[] crc = await ReadAsync(2, cancellationToken).ConfigureAwait(false);
+
+                byte[] fullFrame = new byte[5];
+                fullFrame[0] = frameStart[0];
+                fullFrame[1] = frameStart[1];
+                fullFrame[2] = exceptionCode;
+                fullFrame[3] = crc[0];
+                fullFrame[4] = crc[1];
+
+                Logger.LogFrameRx(fullFrame);
+                return CreateResponse<T>(fullFrame);
+            }
+            else
+            {
+                byte[] fullFrame = await ReadStandardModbusResponseAsync(frameStart, cancellationToken).ConfigureAwait(false);
                 Logger.LogFrameRx(fullFrame);
                 return CreateResponse<T>(fullFrame);
             }
@@ -126,6 +162,63 @@ namespace NModbus.IO
             return frame.ToArray();
         }
 
+        private async Task<byte[]> ReadStandardModbusResponseAsync(byte[] frameStart, CancellationToken cancellationToken = default)
+        {
+            var frame = new List<byte>(frameStart);
+            byte functionCode = frameStart[1];
+
+            switch (functionCode)
+            {
+                case 0x01: // Read Coils
+                case 0x02: // Read Discrete Inputs
+                case 0x03: // Read Holding Registers
+                case 0x04: // Read Input Registers
+                case 0x11: // Report Slave ID
+                case 0x17: // Read/Write Multiple Registers
+                {
+                    byte byteCount = (await ReadAsync(1, cancellationToken).ConfigureAwait(false))[0];
+                    frame.Add(byteCount);
+                    frame.AddRange(await ReadAsync(byteCount, cancellationToken).ConfigureAwait(false));
+                    frame.AddRange(await ReadAsync(2, cancellationToken).ConfigureAwait(false)); // CRC
+                    break;
+                }
+
+                case 0x05: // Write Single Coil
+                case 0x06: // Write Single Register
+                case 0x0F: // Write Multiple Coils
+                case 0x10: // Write Multiple Registers
+                {
+                    frame.AddRange(await ReadAsync(4, cancellationToken).ConfigureAwait(false)); // Address + Value/Quantity
+                    frame.AddRange(await ReadAsync(2, cancellationToken).ConfigureAwait(false)); // CRC
+                    break;
+                }
+
+                case 0x16: // Mask Write Register
+                {
+                    frame.AddRange(await ReadAsync(6, cancellationToken).ConfigureAwait(false)); // Address + AND mask + OR mask
+                    frame.AddRange(await ReadAsync(2, cancellationToken).ConfigureAwait(false)); // CRC
+                    break;
+                }
+
+                case 0x18: // Read FIFO Queue
+                {
+                    byte[] counts = await ReadAsync(4, cancellationToken).ConfigureAwait(false);
+                    frame.AddRange(counts);
+                    ushort byteCount = (ushort)((counts[0] << 8) | counts[1]);
+                    if (byteCount > 2)
+                        frame.AddRange(await ReadAsync(byteCount - 2, cancellationToken).ConfigureAwait(false));
+                    frame.AddRange(await ReadAsync(2, cancellationToken).ConfigureAwait(false)); // CRC
+                    break;
+                }
+
+                default:
+                    throw new IOException(
+                        $"EnhancedModbusRtuTransport: unsupported function code 0x{functionCode:X2}");
+            }
+
+            return frame.ToArray();
+        }
+
         /// <summary>
         ///     Reads a complete Device ID response frame including CRC verification.
         /// </summary>
@@ -176,6 +269,75 @@ namespace NModbus.IO
                 throw new IOException($"Device ID response CRC mismatch. Received: 0x{received:X4}, calculated: 0x{calculated:X4}");
 
             return dataFrame;
+        }
+
+        private async Task<byte[]> ReadDeviceIdResponseFrameAsync(byte[] frameStart, CancellationToken cancellationToken = default)
+        {
+            var frame = new List<byte>(frameStart);
+
+            // Error response check
+            if ((frameStart[1] & 0x80) == 0x80)
+            {
+                frame.Add((await ReadAsync(1, cancellationToken).ConfigureAwait(false))[0]); // Exception code
+                frame.AddRange(await ReadAsync(2, cancellationToken).ConfigureAwait(false)); // CRC
+                return frame.ToArray();
+            }
+
+            // Header: MEI type + Device ID code + Conformity + MoreFollows + NextObjId + NumObjects
+            byte meiType = (await ReadAsync(1, cancellationToken).ConfigureAwait(false))[0];
+            frame.Add(meiType);
+
+            if (meiType != MeiType)
+                throw new IOException($"Unexpected MEI type 0x{meiType:X2} in Device ID response.");
+
+            byte[] header = await ReadAsync(5, cancellationToken).ConfigureAwait(false); // DeviceIdCode, Conformity, MoreFollows, NextObjId, NumObjects
+            frame.AddRange(header);
+
+            byte numberOfObjects = header[4];
+
+            // Read each object: [ObjectId][Length][Value...]
+            for (int i = 0; i < numberOfObjects; i++)
+            {
+                byte objectId = (await ReadAsync(1, cancellationToken).ConfigureAwait(false))[0];
+                frame.Add(objectId);
+
+                byte objectLength = (await ReadAsync(1, cancellationToken).ConfigureAwait(false))[0];
+                frame.Add(objectLength);
+
+                if (objectLength > 0)
+                    frame.AddRange(await ReadAsync(objectLength, cancellationToken).ConfigureAwait(false));
+            }
+
+            // Read and verify CRC
+            byte[] crcBytes = await ReadAsync(2, cancellationToken).ConfigureAwait(false);
+            byte[] dataFrame = frame.ToArray();
+            ushort received = (ushort)(crcBytes[0] | (crcBytes[1] << 8));
+            ushort calculated = BitConverter.ToUInt16(ModbusUtility.CalculateCrc(dataFrame), 0);
+
+            if (received != calculated)
+                throw new IOException($"Device ID response CRC mismatch. Received: 0x{received:X4}, calculated: 0x{calculated:X4}");
+
+            return dataFrame;
+        }
+
+        private async Task<byte[]> ReadAsync(int count, CancellationToken cancellationToken = default)
+        {
+            byte[] frameBytes = new byte[count];
+            int numBytesReadTotal = 0;
+
+            while (numBytesReadTotal != count)
+            {
+                int numBytesRead = await StreamResource.ReadAsync(frameBytes.AsMemory(numBytesReadTotal, count - numBytesReadTotal), cancellationToken).ConfigureAwait(false);
+
+                if (numBytesRead == 0)
+                {
+                    throw new IOException("Read resulted in 0 bytes returned.");
+                }
+
+                numBytesReadTotal += numBytesRead;
+            }
+
+            return frameBytes;
         }
     }
 }

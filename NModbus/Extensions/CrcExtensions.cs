@@ -1,5 +1,4 @@
-﻿using System;
-using System.Linq;
+using System;
 using NModbus.Utility;
 
 namespace NModbus.Extensions
@@ -8,20 +7,24 @@ namespace NModbus.Extensions
     {
         /// <summary>
         /// Determines whether the crc stored in the message matches the calculated crc.
+        /// Uses Span-based CRC calculation to avoid allocations.
         /// </summary>
         /// <param name="message"></param>
         /// <returns></returns>
         public static bool DoesCrcMatch(this byte[] message)
         {
-            var messageFrame = message.Take(message.Length - 2).ToArray();
+            if (message == null)
+                throw new ArgumentNullException(nameof(message));
 
-            //Calculate the CRC with the given set of bytes
-            var calculatedCrc = BitConverter.ToUInt16(ModbusUtility.CalculateCrc(messageFrame), 0);
+            if (message.Length < 4)
+                throw new ArgumentException("message must be at least four bytes long");
 
-            //Get the crc that is stored in the message
-            var messageCrc = message.GetCRC();
+            // Use Span-based CRC (returns ushort, no allocation)
+            ushort calculatedCrc = ModbusUtility.CalculateCrc(message.AsSpan(0, message.Length - 2));
 
-            //Determine if they match
+            // Get the crc that is stored in the message
+            ushort messageCrc = message.GetCRC();
+
             return calculatedCrc == messageCrc;
         }
 

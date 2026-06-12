@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -77,6 +78,31 @@ namespace NModbus.Data
         public override string ToString()
         {
             return string.Concat("{", string.Join(", ", this.Select(v => v.ToString()).ToArray()), "}");
+        }
+
+        /// <summary>
+        ///     Writes all registers in big-endian (network) byte order directly into the destination span.
+        /// </summary>
+        /// <param name="destination">The destination span. Must be at least <see cref="ByteCount"/> bytes long.</param>
+        public void WriteNetworkBytes(Span<byte> destination)
+        {
+            for (int i = 0; i < Count; i++)
+            {
+                BinaryPrimitives.WriteUInt16BigEndian(destination.Slice(i * 2), this[i]);
+            }
+        }
+
+        /// <summary>
+        ///     Returns a new array containing the first <paramref name="count"/> registers.
+        ///     Avoids LINQ Take().ToArray() overhead.
+        /// </summary>
+        public ushort[] TakeToArray(int count)
+        {
+            if (count > Count) count = Count;
+            var result = new ushort[count];
+            for (int i = 0; i < count; i++)
+                result[i] = this[i];
+            return result;
         }
     }
 }

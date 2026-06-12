@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Linq;
-using NModbus.Unme.Common;
 
 namespace NModbus.Data
 {
@@ -24,9 +22,7 @@ namespace NModbus.Data
         {
             lock (_syncRoot)
             {
-                return _points.Value
-                    .Slice(startAddress, numberOfPoints)
-                    .ToArray();
+                return _points.Value.AsSpan(startAddress, numberOfPoints).ToArray();
             }
         }
 
@@ -34,10 +30,7 @@ namespace NModbus.Data
         {
             lock (_syncRoot)
             {
-                for (ushort index = 0; index < points.Length; index++)
-                {
-                    _points.Value[startAddress + index] = points[index];
-                }
+                points.AsSpan().CopyTo(_points.Value.AsSpan(startAddress));
             }
         }
     }

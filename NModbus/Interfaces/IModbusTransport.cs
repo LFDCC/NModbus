@@ -1,4 +1,6 @@
-﻿using System;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using NModbus.IO;
 
 namespace NModbus
@@ -29,5 +31,26 @@ namespace NModbus
         void Write(IModbusMessage message);
 
         IStreamResource StreamResource { get; }
+
+        /// <summary>
+        ///     Asynchronously sends a unicast message and returns the response.
+        /// </summary>
+        Task<T> UnicastMessageAsync<T>(IModbusMessage message, CancellationToken cancellationToken = default)
+            where T : IModbusMessage, new();
+
+        /// <summary>
+        ///     Asynchronously sends a broadcast message (address 0) without reading any response.
+        /// </summary>
+        Task BroadcastWriteAsync(IModbusMessage message, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        ///     Asynchronously reads a request from the stream.
+        /// </summary>
+        Task<byte[]> ReadRequestAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        ///     Asynchronously writes a message to the stream.
+        /// </summary>
+        Task WriteAsync(IModbusMessage message, CancellationToken cancellationToken = default);
     }
 }

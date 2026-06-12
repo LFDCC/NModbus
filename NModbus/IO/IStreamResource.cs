@@ -1,4 +1,6 @@
-﻿using System;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace NModbus.IO
 {
@@ -44,5 +46,20 @@ namespace NModbus.IO
         /// <param name="offset">The offset in the buffer array to begin writing.</param>
         /// <param name="count">The number of bytes to write.</param>
         void Write(byte[] buffer, int offset, int count);
+
+        /// <summary>
+        ///     Asynchronously reads a number of bytes from the input buffer.
+        /// </summary>
+        /// <param name="buffer">The memory buffer to write the input to.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The number of bytes read.</returns>
+        ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        ///     Asynchronously writes bytes to the output buffer.
+        /// </summary>
+        /// <param name="buffer">The memory buffer containing data to write.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default);
     }
 }

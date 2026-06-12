@@ -14,7 +14,7 @@ namespace NModbus.Device
         private readonly IModbusSerialTransport _serialTransport;
         private readonly IModbusFactory _modbusFactory;
 
-        public ModbusSerialSlaveNetwork(IModbusSerialTransport transport, IModbusFactory modbusFactory, IModbusLogger logger) 
+        public ModbusSerialSlaveNetwork(IModbusSerialTransport transport, IModbusFactory modbusFactory, IModbusLogger logger)
             : base(transport, modbusFactory, logger)
         {
             _serialTransport = transport ?? throw new ArgumentNullException(nameof(transport));
@@ -23,14 +23,14 @@ namespace NModbus.Device
 
         private IModbusSerialTransport SerialTransport => _serialTransport;
 
-        public override Task ListenAsync(CancellationToken cancellationToken = new CancellationToken())
+        public override async Task ListenAsync(CancellationToken cancellationToken = new CancellationToken())
         {
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    // read request and build message
-                    byte[] frame = SerialTransport.ReadRequest();
+                    // read request using native async I/O
+                    byte[] frame = await SerialTransport.ReadRequestAsync(cancellationToken).ConfigureAwait(false);
 
                     //Create the request
                     IModbusMessage request = _modbusFactory.CreateModbusRequest(frame);
@@ -52,8 +52,12 @@ namespace NModbus.Device
                     }
                     else
                     {
-                        Transport.Write(response);
+                        await Transport.WriteAsync(response, cancellationToken).ConfigureAwait(false);
                     }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
                 }
                 catch (IOException ioe)
                 {
@@ -65,7 +69,7 @@ namespace NModbus.Device
                     Logger.Trace($"Timeout Exception encountered while listening for requests - {te.Message}");
                     SerialTransport.DiscardInBuffer();
                 }
-                catch(InvalidOperationException)
+                catch (InvalidOperationException)
                 {
                     // when the underlying transport is disposed
                     break;
@@ -76,8 +80,6 @@ namespace NModbus.Device
                     SerialTransport.DiscardInBuffer();
                 }
             }
-
-            return Task.FromResult(0);
         }
     }
 }

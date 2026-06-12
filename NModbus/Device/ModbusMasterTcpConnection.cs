@@ -1,7 +1,7 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -80,9 +80,9 @@ namespace NModbus.Device
                        return;
                    }
             
-                   ushort frameLength = (ushort)IPAddress.HostToNetworkOrder(BitConverter.ToInt16(_mbapHeader, 4));
+                   ushort frameLength = BinaryPrimitives.ReadUInt16BigEndian(_mbapHeader.AsSpan(4));
                    Logger.Debug($"Master at {EndPoint} sent header: \"{string.Join(", ", _mbapHeader)}\" with {frameLength} bytes in PDU");
-            
+
                    _messageFrame = new byte[frameLength];
                    readBytes = await Stream.ReadAsync(_messageFrame, 0, frameLength).ConfigureAwait(false);
                    if (readBytes == 0)
@@ -91,13 +91,14 @@ namespace NModbus.Device
                        ModbusMasterTcpConnectionClosed?.Invoke(this, new TcpConnectionEventArgs(EndPoint));
                        return;
                    }
-            
+
                    Logger.Debug($"Read frame from Master at {EndPoint} completed {readBytes} bytes");
-                   byte[] frame = _mbapHeader.Concat(_messageFrame).ToArray();
-                   Logger.Trace($"RX from Master at {EndPoint}: {string.Join(", ", frame)}");
-            
+                   byte[] frame = new byte[6 + frameLength];
+                   _mbapHeader.CopyTo(frame, 0);
+                   _messageFrame.CopyTo(frame, 6);
+
                    var request = _modbusFactory.CreateModbusRequest(_messageFrame);
-                   request.TransactionId = (ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(frame, 0));
+                   request.TransactionId = BinaryPrimitives.ReadUInt16BigEndian(frame.AsSpan(0));
             
                    IModbusSlave slave = _slaveNetwork.GetSlave(request.SlaveAddress);
             

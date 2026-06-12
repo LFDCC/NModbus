@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using NModbus.Data;
 using NModbus.Message;
@@ -44,8 +45,9 @@ namespace NModbus.Device
 		/// <param name="slaveAddress">Address of device to read values from.</param>
 		/// <param name="startAddress">Address to begin reading.</param>
 		/// <param name="numberOfPoints">Number of coils to read.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task that represents the asynchronous read operation.</returns>
-		public Task<bool[]> ReadCoilsAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints)
+		public async Task<bool[]> ReadCoilsAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints, CancellationToken cancellationToken = default)
 		{
 			ValidateNumberOfPoints("numberOfPoints", numberOfPoints, 2000);
 
@@ -55,7 +57,7 @@ namespace NModbus.Device
 					startAddress,
 					numberOfPoints);
 
-			return PerformReadDiscretesAsync(request);
+			return await PerformReadDiscretesAsync(request, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -84,8 +86,9 @@ namespace NModbus.Device
 		/// <param name="slaveAddress">Address of device to read values from.</param>
 		/// <param name="startAddress">Address to begin reading.</param>
 		/// <param name="numberOfPoints">Number of discrete inputs to read.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task that represents the asynchronous read operation.</returns>
-		public Task<bool[]> ReadInputsAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints)
+		public async Task<bool[]> ReadInputsAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints, CancellationToken cancellationToken = default)
 		{
 			ValidateNumberOfPoints("numberOfPoints", numberOfPoints, 2000);
 
@@ -95,7 +98,7 @@ namespace NModbus.Device
 					startAddress,
 					numberOfPoints);
 
-			return PerformReadDiscretesAsync(request);
+			return await PerformReadDiscretesAsync(request, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -124,8 +127,9 @@ namespace NModbus.Device
 		/// <param name="slaveAddress">Address of device to read values from.</param>
 		/// <param name="startAddress">Address to begin reading.</param>
 		/// <param name="numberOfPoints">Number of holding registers to read.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task that represents the asynchronous read operation.</returns>
-		public Task<ushort[]> ReadHoldingRegistersAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints)
+		public async Task<ushort[]> ReadHoldingRegistersAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints, CancellationToken cancellationToken = default)
 		{
 			ValidateNumberOfPoints("numberOfPoints", numberOfPoints, 125);
 
@@ -135,7 +139,7 @@ namespace NModbus.Device
 					startAddress,
 					numberOfPoints);
 
-			return PerformReadRegistersAsync(request);
+			return await PerformReadRegistersAsync(request, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -164,8 +168,9 @@ namespace NModbus.Device
 		/// <param name="slaveAddress">Address of device to read values from.</param>
 		/// <param name="startAddress">Address to begin reading.</param>
 		/// <param name="numberOfPoints">Number of holding registers to read.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task that represents the asynchronous read operation.</returns>
-		public Task<ushort[]> ReadInputRegistersAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints)
+		public async Task<ushort[]> ReadInputRegistersAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints, CancellationToken cancellationToken = default)
 		{
 			ValidateNumberOfPoints("numberOfPoints", numberOfPoints, 125);
 
@@ -175,7 +180,7 @@ namespace NModbus.Device
 					startAddress,
 					numberOfPoints);
 
-			return PerformReadRegistersAsync(request);
+			return await PerformReadRegistersAsync(request, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -196,11 +201,12 @@ namespace NModbus.Device
 		/// <param name="slaveAddress">Address of the device to write to.</param>
 		/// <param name="coilAddress">Address to write value to.</param>
 		/// <param name="value">Value to write.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task that represents the asynchronous write operation.</returns>
-		public Task WriteSingleCoilAsync(byte slaveAddress, ushort coilAddress, bool value)
+		public async Task WriteSingleCoilAsync(byte slaveAddress, ushort coilAddress, bool value, CancellationToken cancellationToken = default)
 		{
 			var request = new WriteSingleCoilRequestResponse(slaveAddress, coilAddress, value);
-			return PerformWriteRequestAsync<WriteSingleCoilRequestResponse>(request);
+			await PerformWriteRequestAsync<WriteSingleCoilRequestResponse>(request, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -225,15 +231,16 @@ namespace NModbus.Device
 		/// <param name="slaveAddress">Address of the device to write to.</param>
 		/// <param name="registerAddress">Address to write.</param>
 		/// <param name="value">Value to write.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task that represents the asynchronous write operation.</returns>
-		public Task WriteSingleRegisterAsync(byte slaveAddress, ushort registerAddress, ushort value)
+		public async Task WriteSingleRegisterAsync(byte slaveAddress, ushort registerAddress, ushort value, CancellationToken cancellationToken = default)
 		{
 			var request = new WriteSingleRegisterRequestResponse(
 					slaveAddress,
 					registerAddress,
 					value);
 
-			return PerformWriteRequestAsync<WriteSingleRegisterRequestResponse>(request);
+			await PerformWriteRequestAsync<WriteSingleRegisterRequestResponse>(request, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -254,9 +261,11 @@ namespace NModbus.Device
 		/// </summary>
 		/// <param name="registerAddress">Address to write.</param>
 		/// <param name="value">Value to write.</param>
-		public Task BroadcastWriteSingleRegisterAsync(ushort registerAddress, ushort value)
+		/// <param name="cancellationToken">Cancellation token.</param>
+		public async Task BroadcastWriteSingleRegisterAsync(ushort registerAddress, ushort value, CancellationToken cancellationToken = default)
 		{
-			return Task.Run(() => BroadcastWriteSingleRegister(registerAddress, value));
+			var request = new WriteSingleRegisterRequestResponse(0, registerAddress, value);
+			await Transport.BroadcastWriteAsync(request, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -283,8 +292,9 @@ namespace NModbus.Device
 		/// <param name="slaveAddress">Address of the device to write to.</param>
 		/// <param name="startAddress">Address to begin writing values.</param>
 		/// <param name="data">Values to write.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task that represents the asynchronous write operation.</returns>
-		public Task WriteMultipleRegistersAsync(byte slaveAddress, ushort startAddress, ushort[] data)
+		public async Task WriteMultipleRegistersAsync(byte slaveAddress, ushort startAddress, ushort[] data, CancellationToken cancellationToken = default)
 		{
 			ValidateData("data", data, 123);
 
@@ -293,7 +303,7 @@ namespace NModbus.Device
 					startAddress,
 					new RegisterCollection(data));
 
-			return PerformWriteRequestAsync<WriteMultipleRegistersResponse>(request);
+			await PerformWriteRequestAsync<WriteMultipleRegistersResponse>(request, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -320,8 +330,9 @@ namespace NModbus.Device
 		/// <param name="slaveAddress">Address of the device to write to.</param>
 		/// <param name="startAddress">Address to begin writing values.</param>
 		/// <param name="data">Values to write.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task that represents the asynchronous write operation.</returns>
-		public Task WriteMultipleCoilsAsync(byte slaveAddress, ushort startAddress, bool[] data)
+		public async Task WriteMultipleCoilsAsync(byte slaveAddress, ushort startAddress, bool[] data, CancellationToken cancellationToken = default)
 		{
 			ValidateData("data", data, 1968);
 
@@ -330,7 +341,7 @@ namespace NModbus.Device
 					startAddress,
 					new DiscreteCollection(data));
 
-			return PerformWriteRequestAsync<WriteMultipleCoilsResponse>(request);
+			await PerformWriteRequestAsync<WriteMultipleCoilsResponse>(request, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -371,13 +382,15 @@ namespace NModbus.Device
 		/// <param name="numberOfPointsToRead">Number of registers to read.</param>
 		/// <param name="startWriteAddress">Address to begin writing (Holding registers are addressed starting at 0).</param>
 		/// <param name="writeData">Register values to write.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task that represents the asynchronous operation.</returns>
-		public Task<ushort[]> ReadWriteMultipleRegistersAsync(
+		public async Task<ushort[]> ReadWriteMultipleRegistersAsync(
 				byte slaveAddress,
 				ushort startReadAddress,
 				ushort numberOfPointsToRead,
 				ushort startWriteAddress,
-				ushort[] writeData)
+				ushort[] writeData,
+				CancellationToken cancellationToken = default)
 		{
 			ValidateNumberOfPoints("numberOfPointsToRead", numberOfPointsToRead, 125);
 			ValidateData("writeData", writeData, 121);
@@ -389,7 +402,7 @@ namespace NModbus.Device
 					startWriteAddress,
 					new RegisterCollection(writeData));
 
-			return PerformReadRegistersAsync(request);
+			return await PerformReadRegistersAsync(request, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -443,11 +456,14 @@ namespace NModbus.Device
 		/// <param name="slaveAddress">Address of the device to read from.</param>
 		/// <param name="category">The category of identification objects to read.</param>
 		/// <param name="objectId">The first object ID to read.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task containing a dictionary mapping object IDs to their string values.</returns>
-		public Task<Dictionary<byte, string>> ReadDeviceIdentificationAsync(byte slaveAddress,
-			DeviceIdCategory category, byte objectId)
+		public async Task<Dictionary<byte, string>> ReadDeviceIdentificationAsync(byte slaveAddress,
+			DeviceIdCategory category, byte objectId, CancellationToken cancellationToken = default)
 		{
-			return Task.Run(() => ReadDeviceIdentification(slaveAddress, category, objectId));
+			var request = new ReadDeviceIdRequest(slaveAddress, category, objectId);
+			var response = await Transport.UnicastMessageAsync<ReadDeviceIdResponse>(request, cancellationToken).ConfigureAwait(false);
+			return response.Objects;
 		}
 
 		/// <summary>
@@ -465,10 +481,11 @@ namespace NModbus.Device
 		///    Asynchronously reads basic device identification from a Modbus slave.
 		/// </summary>
 		/// <param name="slaveAddress">Address of the device to read from.</param>
+		/// <param name="cancellationToken">Cancellation token.</param>
 		/// <returns>A task containing a dictionary mapping object IDs to their string values.</returns>
-		public Task<Dictionary<byte, string>> ReadBasicDeviceIdentificationAsync(byte slaveAddress)
+		public async Task<Dictionary<byte, string>> ReadBasicDeviceIdentificationAsync(byte slaveAddress, CancellationToken cancellationToken = default)
 		{
-			return Task.Run(() => ReadBasicDeviceIdentification(slaveAddress));
+			return await ReadDeviceIdentificationAsync(slaveAddress, DeviceIdCategory.Basic, 0x00, cancellationToken).ConfigureAwait(false);
 		}
 
 		private static void ValidateData<T>(string argumentName, T[] data, int maxDataLength)
@@ -511,12 +528,13 @@ namespace NModbus.Device
 		private bool[] PerformReadDiscretes(ReadCoilsInputsRequest request)
 		{
 			ReadCoilsInputsResponse response = Transport.UnicastMessage<ReadCoilsInputsResponse>(request);
-			return response.Data.Take(request.NumberOfPoints).ToArray();
+			return response.Data.TakeToArray(request.NumberOfPoints);
 		}
 
-		private Task<bool[]> PerformReadDiscretesAsync(ReadCoilsInputsRequest request)
+		private async Task<bool[]> PerformReadDiscretesAsync(ReadCoilsInputsRequest request, CancellationToken cancellationToken)
 		{
-			return Task.Factory.StartNew(() => PerformReadDiscretes(request));
+			ReadCoilsInputsResponse response = await Transport.UnicastMessageAsync<ReadCoilsInputsResponse>(request, cancellationToken).ConfigureAwait(false);
+			return response.Data.TakeToArray(request.NumberOfPoints);
 		}
 
 		private ushort[] PerformReadRegisters(ReadHoldingInputRegistersRequest request)
@@ -524,12 +542,15 @@ namespace NModbus.Device
 			ReadHoldingInputRegistersResponse response =
 					Transport.UnicastMessage<ReadHoldingInputRegistersResponse>(request);
 
-			return response.Data.Take(request.NumberOfPoints).ToArray();
+			return response.Data.TakeToArray(request.NumberOfPoints);
 		}
 
-		private Task<ushort[]> PerformReadRegistersAsync(ReadHoldingInputRegistersRequest request)
+		private async Task<ushort[]> PerformReadRegistersAsync(ReadHoldingInputRegistersRequest request, CancellationToken cancellationToken)
 		{
-			return Task.Factory.StartNew(() => PerformReadRegisters(request));
+			ReadHoldingInputRegistersResponse response =
+					await Transport.UnicastMessageAsync<ReadHoldingInputRegistersResponse>(request, cancellationToken).ConfigureAwait(false);
+
+			return response.Data.TakeToArray(request.NumberOfPoints);
 		}
 
 		private ushort[] PerformReadRegisters(ReadWriteMultipleRegistersRequest request)
@@ -537,18 +558,21 @@ namespace NModbus.Device
 			ReadHoldingInputRegistersResponse response =
 					Transport.UnicastMessage<ReadHoldingInputRegistersResponse>(request);
 
-			return response.Data.Take(request.ReadRequest.NumberOfPoints).ToArray();
+			return response.Data.TakeToArray(request.ReadRequest.NumberOfPoints);
 		}
 
-		private Task<ushort[]> PerformReadRegistersAsync(ReadWriteMultipleRegistersRequest request)
+		private async Task<ushort[]> PerformReadRegistersAsync(ReadWriteMultipleRegistersRequest request, CancellationToken cancellationToken)
 		{
-			return Task.Factory.StartNew(() => PerformReadRegisters(request));
+			ReadHoldingInputRegistersResponse response =
+					await Transport.UnicastMessageAsync<ReadHoldingInputRegistersResponse>(request, cancellationToken).ConfigureAwait(false);
+
+			return response.Data.TakeToArray(request.ReadRequest.NumberOfPoints);
 		}
 
-		private Task PerformWriteRequestAsync<T>(IModbusMessage request)
+		private async Task PerformWriteRequestAsync<T>(IModbusMessage request, CancellationToken cancellationToken)
 				where T : IModbusMessage, new()
 		{
-			return Task.Factory.StartNew(() => Transport.UnicastMessage<T>(request));
+			await Transport.UnicastMessageAsync<T>(request, cancellationToken).ConfigureAwait(false);
 		}
 	}
 }

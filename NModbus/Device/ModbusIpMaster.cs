@@ -1,4 +1,5 @@
-﻿using System.Threading.Tasks;
+﻿using System.Threading;
+using System.Threading.Tasks;
 
 namespace NModbus.Device
 {
@@ -32,10 +33,11 @@ namespace NModbus.Device
         /// </summary>
         /// <param name="startAddress">Address to begin reading.</param>
         /// <param name="numberOfPoints">Number of coils to read.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that represents the asynchronous read operation.</returns>
-        public Task<bool[]> ReadCoilsAsync(ushort startAddress, ushort numberOfPoints)
+        public Task<bool[]> ReadCoilsAsync(ushort startAddress, ushort numberOfPoints, CancellationToken cancellationToken = default)
         {
-            return base.ReadCoilsAsync(Modbus.DefaultIpSlaveUnitId, startAddress, numberOfPoints);
+            return base.ReadCoilsAsync(Modbus.DefaultIpSlaveUnitId, startAddress, numberOfPoints, cancellationToken);
         }
 
         /// <summary>
@@ -54,10 +56,11 @@ namespace NModbus.Device
         /// </summary>
         /// <param name="startAddress">Address to begin reading.</param>
         /// <param name="numberOfPoints">Number of discrete inputs to read.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that represents the asynchronous read operation.</returns>
-        public Task<bool[]> ReadInputsAsync(ushort startAddress, ushort numberOfPoints)
+        public Task<bool[]> ReadInputsAsync(ushort startAddress, ushort numberOfPoints, CancellationToken cancellationToken = default)
         {
-            return base.ReadInputsAsync(Modbus.DefaultIpSlaveUnitId, startAddress, numberOfPoints);
+            return base.ReadInputsAsync(Modbus.DefaultIpSlaveUnitId, startAddress, numberOfPoints, cancellationToken);
         }
 
         /// <summary>
@@ -76,10 +79,11 @@ namespace NModbus.Device
         /// </summary>
         /// <param name="startAddress">Address to begin reading.</param>
         /// <param name="numberOfPoints">Number of holding registers to read.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that represents the asynchronous read operation.</returns>
-        public Task<ushort[]> ReadHoldingRegistersAsync(ushort startAddress, ushort numberOfPoints)
+        public Task<ushort[]> ReadHoldingRegistersAsync(ushort startAddress, ushort numberOfPoints, CancellationToken cancellationToken = default)
         {
-            return base.ReadHoldingRegistersAsync(Modbus.DefaultIpSlaveUnitId, startAddress, numberOfPoints);
+            return base.ReadHoldingRegistersAsync(Modbus.DefaultIpSlaveUnitId, startAddress, numberOfPoints, cancellationToken);
         }
 
         /// <summary>
@@ -98,10 +102,11 @@ namespace NModbus.Device
         /// </summary>
         /// <param name="startAddress">Address to begin reading.</param>
         /// <param name="numberOfPoints">Number of holding registers to read.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that represents the asynchronous read operation.</returns>
-        public Task<ushort[]> ReadInputRegistersAsync(ushort startAddress, ushort numberOfPoints)
+        public Task<ushort[]> ReadInputRegistersAsync(ushort startAddress, ushort numberOfPoints, CancellationToken cancellationToken = default)
         {
-            return base.ReadInputRegistersAsync(Modbus.DefaultIpSlaveUnitId, startAddress, numberOfPoints);
+            return base.ReadInputRegistersAsync(Modbus.DefaultIpSlaveUnitId, startAddress, numberOfPoints, cancellationToken);
         }
 
         /// <summary>
@@ -119,10 +124,11 @@ namespace NModbus.Device
         /// </summary>
         /// <param name="coilAddress">Address to write value to.</param>
         /// <param name="value">Value to write.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that represents the asynchronous write operation.</returns>
-        public Task WriteSingleCoilAsync(ushort coilAddress, bool value)
+        public Task WriteSingleCoilAsync(ushort coilAddress, bool value, CancellationToken cancellationToken = default)
         {
-            return base.WriteSingleCoilAsync(Modbus.DefaultIpSlaveUnitId, coilAddress, value);
+            return base.WriteSingleCoilAsync(Modbus.DefaultIpSlaveUnitId, coilAddress, value, cancellationToken);
         }
 
         /// <summary>
@@ -140,10 +146,11 @@ namespace NModbus.Device
         /// </summary>
         /// <param name="registerAddress">Address to write.</param>
         /// <param name="value">Value to write.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that represents the asynchronous write operation.</returns>
-        public Task WriteSingleRegisterAsync(ushort registerAddress, ushort value)
+        public Task WriteSingleRegisterAsync(ushort registerAddress, ushort value, CancellationToken cancellationToken = default)
         {
-            return base.WriteSingleRegisterAsync(Modbus.DefaultIpSlaveUnitId, registerAddress, value);
+            return base.WriteSingleRegisterAsync(Modbus.DefaultIpSlaveUnitId, registerAddress, value, cancellationToken);
         }
 
         /// <summary>
@@ -161,10 +168,11 @@ namespace NModbus.Device
         /// </summary>
         /// <param name="startAddress">Address to begin writing values.</param>
         /// <param name="data">Values to write.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that represents the asynchronous write operation.</returns>
-        public Task WriteMultipleRegistersAsync(ushort startAddress, ushort[] data)
+        public Task WriteMultipleRegistersAsync(ushort startAddress, ushort[] data, CancellationToken cancellationToken = default)
         {
-            return base.WriteMultipleRegistersAsync(Modbus.DefaultIpSlaveUnitId, startAddress, data);
+            return base.WriteMultipleRegistersAsync(Modbus.DefaultIpSlaveUnitId, startAddress, data, cancellationToken);
         }
 
         /// <summary>
@@ -182,10 +190,11 @@ namespace NModbus.Device
         /// </summary>
         /// <param name="startAddress">Address to begin writing values.</param>
         /// <param name="data">Values to write.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that represents the asynchronous write operation</returns>
-        public Task WriteMultipleCoilsAsync(ushort startAddress, bool[] data)
+        public Task WriteMultipleCoilsAsync(ushort startAddress, bool[] data, CancellationToken cancellationToken = default)
         {
-            return base.WriteMultipleCoilsAsync(Modbus.DefaultIpSlaveUnitId, startAddress, data);
+            return base.WriteMultipleCoilsAsync(Modbus.DefaultIpSlaveUnitId, startAddress, data, cancellationToken);
         }
 
         /// <summary>
@@ -219,19 +228,22 @@ namespace NModbus.Device
         /// <param name="numberOfPointsToRead">Number of registers to read.</param>
         /// <param name="startWriteAddress">Address to begin writing (Holding registers are addressed starting at 0).</param>
         /// <param name="writeData">Register values to write.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that represents the asynchronous operation.</returns>
         public Task<ushort[]> ReadWriteMultipleRegistersAsync(
             ushort startReadAddress,
             ushort numberOfPointsToRead,
             ushort startWriteAddress,
-            ushort[] writeData)
+            ushort[] writeData,
+            CancellationToken cancellationToken = default)
         {
             return base.ReadWriteMultipleRegistersAsync(
                 Modbus.DefaultIpSlaveUnitId,
                 startReadAddress,
                 numberOfPointsToRead,
                 startWriteAddress,
-                writeData);
+                writeData,
+                cancellationToken);
         }
     }
 }

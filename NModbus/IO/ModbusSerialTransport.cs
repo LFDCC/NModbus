@@ -1,5 +1,8 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using NModbus.Logging;
 
 namespace NModbus.IO
@@ -39,8 +42,19 @@ namespace NModbus.IO
             byte[] frame = BuildMessageFrame(message);
 
             Logger.LogFrameTx(frame);
-            
+
             StreamResource.Write(frame, 0, frame.Length);
+        }
+
+        public override async Task WriteAsync(IModbusMessage message, CancellationToken cancellationToken = default)
+        {
+            DiscardInBuffer();
+
+            byte[] frame = BuildMessageFrame(message);
+
+            Logger.LogFrameTx(frame);
+
+            await StreamResource.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
         }
 
         public override IModbusMessage CreateResponse<T>(byte[] frame)
