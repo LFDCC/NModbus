@@ -159,6 +159,16 @@ namespace NModbus.Data
 
         #endregion
 
+        public static implicit operator ModbusValue(bool v) => From(v);
+        public static implicit operator ModbusValue(short v) => From(v);
+        public static implicit operator ModbusValue(ushort v) => From(v);
+        public static implicit operator ModbusValue(int v) => From(v);
+        public static implicit operator ModbusValue(uint v) => From(v);
+        public static implicit operator ModbusValue(long v) => From(v);
+        public static implicit operator ModbusValue(ulong v) => From(v);
+        public static implicit operator ModbusValue(float v) => From(v);
+        public static implicit operator ModbusValue(double v) => From(v);
+
         public override string ToString() => HasValue ? $"{_type}: {ToObject()}" : "(empty)";
 
         [MethodImpl(MethodImplOptions.NoInlining)]
