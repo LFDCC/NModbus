@@ -5,9 +5,6 @@ namespace NModbus.Data
     /// </summary>
     public enum DataTypeEnum : byte
     {
-        /// <summary>No value assigned (default).</summary>
-        None = 0,
-
         /// <summary>Boolean (coil/discrete input, 1 bit)</summary>
         Bool,
 

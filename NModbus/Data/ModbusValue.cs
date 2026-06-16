@@ -1,178 +1,373 @@
 using System;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace NModbus.Data
 {
     /// <summary>
-    ///     Discriminated union for Modbus register values. Stored inline in collections — no boxing.
-    ///     Size: 16 bytes (4 bytes type enum + 8 bytes primary value + 4 bytes padding).
+    /// Modbus 值的联合类型。真正的联合体（16 字节，栈分配）。
     /// </summary>
+    [StructLayout(LayoutKind.Explicit, Size = 16)]
     public readonly struct ModbusValue : IEquatable<ModbusValue>
     {
-        private readonly DataTypeEnum _type;
-        private readonly long _intVal;    // stores bool/short/ushort/int/uint/long
-        private readonly ulong _uintVal;  // stores ulong
-        private readonly double _dblVal;  // stores float/double
+        // === 类型判别器（1 字节，DataTypeEnum : byte） ===
+        [FieldOffset(0)] private readonly DataTypeEnum _type;
 
-        private ModbusValue(DataTypeEnum type, long intVal, ulong uintVal, double dblVal)
+        // === 值联合体（8 字节，互斥共享） ===
+        [FieldOffset(8)] private readonly long _intVal;    // bool / short / ushort / int / uint / long
+        [FieldOffset(8)] private readonly ulong _ulongVal;  // ulong
+        [FieldOffset(8)] private readonly double _dblVal;    // float / double
+
+        // === 公开属性 ===
+        public DataTypeEnum DataType => _type;
+
+        /// <summary>显式的空值实例。</summary>
+        public static ModbusValue None => default;
+
+        // === 类型判断（零开销，直接比较判别器） ===
+        public bool IsBool => _type == DataTypeEnum.Bool;
+        public bool IsInt16 => _type == DataTypeEnum.Int16;
+        public bool IsUInt16 => _type == DataTypeEnum.UInt16;
+        public bool IsInt32 => _type == DataTypeEnum.Int32;
+        public bool IsUInt32 => _type == DataTypeEnum.UInt32;
+        public bool IsInt64 => _type == DataTypeEnum.Int64;
+        public bool IsUInt64 => _type == DataTypeEnum.UInt64;
+        public bool IsFloat => _type == DataTypeEnum.Float;
+        public bool IsDouble => _type == DataTypeEnum.Double;
+
+        // ========================================================================
+        //  构造函数（私有，三个重载各自只写对应的字段，避免覆盖联合体内存）
+        // ========================================================================
+
+        /// <summary>适用于 long 族：bool / short / ushort / int / uint / long</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private ModbusValue(DataTypeEnum type, long intVal) : this()
         {
             _type = type;
             _intVal = intVal;
-            _uintVal = uintVal;
+        }
+
+        /// <summary>适用于 ulong</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private ModbusValue(DataTypeEnum type, ulong ulongVal) : this()
+        {
+            _type = type;
+            _ulongVal = ulongVal;
+        }
+
+        /// <summary>适用于 float / double</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private ModbusValue(DataTypeEnum type, double dblVal) : this()
+        {
+            _type = type;
             _dblVal = dblVal;
         }
 
-        /// <summary>The data type of this value.</summary>
-        public DataTypeEnum DataType => _type;
+        // ========================================================================
+        //  工厂方法
+        // ========================================================================
 
-        /// <summary>True if this value has been assigned.</summary>
-        public bool HasValue => _type != DataTypeEnum.None;
+        public static ModbusValue From(bool value) =>
+            new(DataTypeEnum.Bool, value ? 1L : 0L);
 
-        #region Factory Methods
+        public static ModbusValue From(short value) =>
+            new(DataTypeEnum.Int16, (long)value);
 
-        public static ModbusValue From(bool value) => new(DataTypeEnum.Bool, value ? 1 : 0, 0, 0);
-        public static ModbusValue From(short value) => new(DataTypeEnum.Int16, value, 0, 0);
-        public static ModbusValue From(ushort value) => new(DataTypeEnum.UInt16, value, 0, 0);
-        public static ModbusValue From(int value) => new(DataTypeEnum.Int32, value, 0, 0);
-        public static ModbusValue From(uint value) => new(DataTypeEnum.UInt32, (long)value, 0, 0);
-        public static ModbusValue From(long value) => new(DataTypeEnum.Int64, value, 0, 0);
-        public static ModbusValue From(ulong value) => new(DataTypeEnum.UInt64, 0, value, 0);
-        public static ModbusValue From(float value) => new(DataTypeEnum.Float, 0, 0, value);
-        public static ModbusValue From(double value) => new(DataTypeEnum.Double, 0, 0, value);
+        public static ModbusValue From(ushort value) =>
+            new(DataTypeEnum.UInt16, (long)value);
 
-        #endregion
+        public static ModbusValue From(int value) =>
+            new(DataTypeEnum.Int32, (long)value);
 
-        #region Type-Safe Getters (no boxing, no conversion)
+        /// <summary>
+        /// uint 存入 _intVal（long），高 32 位始终为零，读回时截断无损。
+        /// </summary>
+        public static ModbusValue From(uint value) =>
+            new(DataTypeEnum.UInt32, (long)value);
+
+        public static ModbusValue From(long value) =>
+            new(DataTypeEnum.Int64, value);
+
+        public static ModbusValue From(ulong value) =>
+            new(DataTypeEnum.UInt64, value);
+
+        /// <summary>float 通过隐式提升为 double 存储（无损）。</summary>
+        public static ModbusValue From(float value) =>
+            new(DataTypeEnum.Float, (double)value);
+
+        public static ModbusValue From(double value) =>
+            new(DataTypeEnum.Double, value);
+
+        // ========================================================================
+        //  类型安全的取值方法（类型不匹配时抛异常）
+        // ========================================================================
 
         public bool ToBool()
         {
-            if (_type != DataTypeEnum.Bool) ThrowTypeMismatch(DataTypeEnum.Bool);
+            if (!IsBool) ThrowTypeMismatch(DataTypeEnum.Bool);
             return _intVal != 0;
         }
 
         public short ToInt16()
         {
-            if (_type != DataTypeEnum.Int16) ThrowTypeMismatch(DataTypeEnum.Int16);
+            if (!IsInt16) ThrowTypeMismatch(DataTypeEnum.Int16);
             return (short)_intVal;
         }
 
         public ushort ToUInt16()
         {
-            if (_type != DataTypeEnum.UInt16) ThrowTypeMismatch(DataTypeEnum.UInt16);
+            if (!IsUInt16) ThrowTypeMismatch(DataTypeEnum.UInt16);
             return (ushort)_intVal;
         }
 
         public int ToInt32()
         {
-            if (_type != DataTypeEnum.Int32) ThrowTypeMismatch(DataTypeEnum.Int32);
+            if (!IsInt32) ThrowTypeMismatch(DataTypeEnum.Int32);
             return (int)_intVal;
         }
 
         public uint ToUInt32()
         {
-            if (_type != DataTypeEnum.UInt32) ThrowTypeMismatch(DataTypeEnum.UInt32);
+            if (!IsUInt32) ThrowTypeMismatch(DataTypeEnum.UInt32);
             return (uint)_intVal;
         }
 
         public long ToInt64()
         {
-            if (_type != DataTypeEnum.Int64) ThrowTypeMismatch(DataTypeEnum.Int64);
+            if (!IsInt64) ThrowTypeMismatch(DataTypeEnum.Int64);
             return _intVal;
         }
 
         public ulong ToUInt64()
         {
-            if (_type != DataTypeEnum.UInt64) ThrowTypeMismatch(DataTypeEnum.UInt64);
-            return _uintVal;
+            if (!IsUInt64) ThrowTypeMismatch(DataTypeEnum.UInt64);
+            return _ulongVal;
         }
 
         public float ToFloat()
         {
-            if (_type != DataTypeEnum.Float) ThrowTypeMismatch(DataTypeEnum.Float);
+            if (!IsFloat) ThrowTypeMismatch(DataTypeEnum.Float);
             return (float)_dblVal;
         }
 
         public double ToDouble()
         {
-            if (_type != DataTypeEnum.Double) ThrowTypeMismatch(DataTypeEnum.Double);
+            if (!IsDouble) ThrowTypeMismatch(DataTypeEnum.Double);
             return _dblVal;
         }
 
-        #endregion
+        // ========================================================================
+        //  安全取值（不抛异常）
+        // ========================================================================
 
-        #region Generic Conversion (no boxing for value types)
+        public bool TryGetBool(out bool value)
+        {
+            if (IsBool) { value = _intVal != 0; return true; }
+            value = default; return false;
+        }
 
-        /// <summary>
-        ///     Convert to the requested type T. No boxing when T is a value type.
-        /// </summary>
+        public bool TryGetInt16(out short value)
+        {
+            if (IsInt16) { value = (short)_intVal; return true; }
+            value = default; return false;
+        }
+
+        public bool TryGetUInt16(out ushort value)
+        {
+            if (IsUInt16) { value = (ushort)_intVal; return true; }
+            value = default; return false;
+        }
+
+        public bool TryGetInt32(out int value)
+        {
+            if (IsInt32) { value = (int)_intVal; return true; }
+            value = default; return false;
+        }
+
+        public bool TryGetUInt32(out uint value)
+        {
+            if (IsUInt32) { value = (uint)_intVal; return true; }
+            value = default; return false;
+        }
+
+        public bool TryGetInt64(out long value)
+        {
+            if (IsInt64) { value = _intVal; return true; }
+            value = default; return false;
+        }
+
+        public bool TryGetUInt64(out ulong value)
+        {
+            if (IsUInt64) { value = _ulongVal; return true; }
+            value = default; return false;
+        }
+
+        public bool TryGetFloat(out float value)
+        {
+            if (IsFloat) { value = (float)_dblVal; return true; }
+            value = default; return false;
+        }
+
+        public bool TryGetDouble(out double value)
+        {
+            if (IsDouble) { value = _dblVal; return true; }
+            value = default; return false;
+        }
+
+        // ========================================================================
+        //  泛型取值
+        // ========================================================================
+
         public T To<T>()
         {
             var t = typeof(T);
-            if (t == typeof(bool))   { bool v = ToBool();       return Unsafe.As<bool, T>(ref v); }
-            if (t == typeof(short))  { short v = ToInt16();     return Unsafe.As<short, T>(ref v); }
-            if (t == typeof(ushort)) { ushort v = ToUInt16();   return Unsafe.As<ushort, T>(ref v); }
-            if (t == typeof(int))    { int v = ToInt32();       return Unsafe.As<int, T>(ref v); }
-            if (t == typeof(uint))   { uint v = ToUInt32();     return Unsafe.As<uint, T>(ref v); }
-            if (t == typeof(long))   { long v = ToInt64();      return Unsafe.As<long, T>(ref v); }
-            if (t == typeof(ulong))  { ulong v = ToUInt64();    return Unsafe.As<ulong, T>(ref v); }
-            if (t == typeof(float))  { float v = ToFloat();     return Unsafe.As<float, T>(ref v); }
-            if (t == typeof(double)) { double v = ToDouble();   return Unsafe.As<double, T>(ref v); }
-            throw new NotSupportedException($"Type {t.Name} is not supported.");
+            if (t == typeof(bool)) return (T)(object)ToBool();
+            if (t == typeof(short)) return (T)(object)ToInt16();
+            if (t == typeof(ushort)) return (T)(object)ToUInt16();
+            if (t == typeof(int)) return (T)(object)ToInt32();
+            if (t == typeof(uint)) return (T)(object)ToUInt32();
+            if (t == typeof(long)) return (T)(object)ToInt64();
+            if (t == typeof(ulong)) return (T)(object)ToUInt64();
+            if (t == typeof(float)) return (T)(object)ToFloat();
+            if (t == typeof(double)) return (T)(object)ToDouble();
+            throw new NotSupportedException($"不支持的类型: {t.Name}");
         }
 
-        #endregion
+        // ========================================================================
+        //  模式匹配
+        // ========================================================================
 
-        #region ToObject (boxing, for backward compatibility)
-
-        /// <summary>
-        ///     Convert to object. This boxes the value — use To&lt;T&gt;() for zero-allocation.
-        ///     Each branch has explicit (object) cast to prevent numeric type promotion.
-        /// </summary>
-        public object ToObject() => _type switch
+        /// <summary>带返回值的模式匹配。</summary>
+        public T Match<T>(
+            Func<bool, T> @bool,
+            Func<short, T> @short,
+            Func<ushort, T> @ushort,
+            Func<int, T> @int,
+            Func<uint, T> @uint,
+            Func<long, T> @long,
+            Func<ulong, T> @ulong,
+            Func<float, T> @float,
+            Func<double, T> @double)
         {
-            DataTypeEnum.None => throw new InvalidOperationException("ModbusValue is empty."),
-            DataTypeEnum.Bool => (object)(_intVal != 0),
-            DataTypeEnum.Int16 => (object)(short)_intVal,
-            DataTypeEnum.UInt16 => (object)(ushort)_intVal,
-            DataTypeEnum.Int32 => (object)(int)_intVal,
-            DataTypeEnum.UInt32 => (object)(uint)_intVal,
-            DataTypeEnum.Int64 => (object)_intVal,
-            DataTypeEnum.UInt64 => (object)_uintVal,
-            DataTypeEnum.Float => (object)(float)_dblVal,
-            DataTypeEnum.Double => (object)_dblVal,
-            _ => throw new InvalidOperationException("ModbusValue is empty.")
-        };
+            return _type switch
+            {
+                DataTypeEnum.Bool => @bool(ToBool()),
+                DataTypeEnum.Int16 => @short(ToInt16()),
+                DataTypeEnum.UInt16 => @ushort(ToUInt16()),
+                DataTypeEnum.Int32 => @int(ToInt32()),
+                DataTypeEnum.UInt32 => @uint(ToUInt32()),
+                DataTypeEnum.Int64 => @long(ToInt64()),
+                DataTypeEnum.UInt64 => @ulong(ToUInt64()),
+                DataTypeEnum.Float => @float(ToFloat()),
+                DataTypeEnum.Double => @double(ToDouble()),
+                _ => throw new InvalidOperationException($"无效的类型: {_type}")
+            };
+        }
 
-        #endregion
+        /// <summary>无返回值的模式匹配（副作用操作）。</summary>
+        public void Match(
+            Action<bool> @bool,
+            Action<short> @short,
+            Action<ushort> @ushort,
+            Action<int> @int,
+            Action<uint> @uint,
+            Action<long> @long,
+            Action<ulong> @ulong,
+            Action<float> @float,
+            Action<double> @double)
+        {
+            switch (_type)
+            {
+                case DataTypeEnum.Bool: @bool(ToBool()); break;
+                case DataTypeEnum.Int16: @short(ToInt16()); break;
+                case DataTypeEnum.UInt16: @ushort(ToUInt16()); break;
+                case DataTypeEnum.Int32: @int(ToInt32()); break;
+                case DataTypeEnum.UInt32: @uint(ToUInt32()); break;
+                case DataTypeEnum.Int64: @long(ToInt64()); break;
+                case DataTypeEnum.UInt64: @ulong(ToUInt64()); break;
+                case DataTypeEnum.Float: @float(ToFloat()); break;
+                case DataTypeEnum.Double: @double(ToDouble()); break;
+                default: throw new InvalidOperationException($"无效的类型: {_type}");
+            }
+        }
 
-        #region Equality
+        // ========================================================================
+        //  相等性（无装箱）
+        // ========================================================================
 
-        public bool Equals(ModbusValue other) =>
-            _type == other._type && _intVal == other._intVal && _uintVal == other._uintVal && _dblVal == other._dblVal;
+        public bool Equals(ModbusValue other)
+        {
+            if (_type != other._type) return false;
+
+            return _type switch
+            {
+                // long 族：bool / short / ushort / int / uint / long 都存在 _intVal 中
+                DataTypeEnum.Bool or DataTypeEnum.Int16 or DataTypeEnum.UInt16 or
+                DataTypeEnum.Int32 or DataTypeEnum.UInt32 or DataTypeEnum.Int64
+                    => _intVal == other._intVal,
+
+                DataTypeEnum.UInt64
+                    => _ulongVal == other._ulongVal,
+
+                // 浮点族：float 提升为 double 是无损的，但 NaN 需要用位级比较
+                DataTypeEnum.Float or DataTypeEnum.Double
+                    => BitConverter.DoubleToInt64Bits(_dblVal) ==
+                       BitConverter.DoubleToInt64Bits(other._dblVal),
+
+                _ => true  // DataTypeEnum.None
+            };
+        }
 
         public override bool Equals(object obj) => obj is ModbusValue other && Equals(other);
-
-        public override int GetHashCode() => HashCode.Combine(_type, _intVal, _uintVal, _dblVal);
 
         public static bool operator ==(ModbusValue left, ModbusValue right) => left.Equals(right);
         public static bool operator !=(ModbusValue left, ModbusValue right) => !left.Equals(right);
 
-        #endregion
+        public override int GetHashCode()
+        {
+            // float / double：使用位级哈希，保证 NaN 的一致性
+            if (IsFloat || IsDouble)
+                return HashCode.Combine(_type, BitConverter.DoubleToInt64Bits(_dblVal));
 
-        public static implicit operator ModbusValue(bool v) => From(v);
-        public static implicit operator ModbusValue(short v) => From(v);
-        public static implicit operator ModbusValue(ushort v) => From(v);
-        public static implicit operator ModbusValue(int v) => From(v);
-        public static implicit operator ModbusValue(uint v) => From(v);
-        public static implicit operator ModbusValue(long v) => From(v);
-        public static implicit operator ModbusValue(ulong v) => From(v);
-        public static implicit operator ModbusValue(float v) => From(v);
-        public static implicit operator ModbusValue(double v) => From(v);
+            // UInt64：直接读 _ulongVal
+            if (IsUInt64)
+                return HashCode.Combine(_type, _ulongVal);
 
-        public override string ToString() => HasValue ? $"{_type}: {ToObject()}" : "(empty)";
+            // 其余类型（Bool/Int16/UInt16/Int32/UInt32/Int64）：
+            // 值均存储在 _intVal 中，直接读取位模式
+            return HashCode.Combine(_type, _intVal);
+        }
+
+        // ========================================================================
+        //  转换为 object（装箱，用于向后兼容场景）
+        // ========================================================================
+
+        public object ToObject()
+        {
+            return _type switch
+            {
+                DataTypeEnum.Bool => (object)ToBool(),
+                DataTypeEnum.Int16 => (object)ToInt16(),
+                DataTypeEnum.UInt16 => (object)ToUInt16(),
+                DataTypeEnum.Int32 => (object)ToInt32(),
+                DataTypeEnum.UInt32 => (object)ToUInt32(),
+                DataTypeEnum.Int64 => (object)ToInt64(),
+                DataTypeEnum.UInt64 => (object)ToUInt64(),
+                DataTypeEnum.Float => (object)ToFloat(),
+                DataTypeEnum.Double => (object)ToDouble(),
+                _ => throw new InvalidOperationException($"无效的类型: {_type}")
+            };
+        }
+
+        public override string ToString() => $"{_type}: {ToObject()}";
+
+        // ========================================================================
+        //  内部辅助
+        // ========================================================================
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void ThrowTypeMismatch(DataTypeEnum expected) =>
-            throw new InvalidOperationException($"Type mismatch: expected {expected}.");
+        private void ThrowTypeMismatch(DataTypeEnum expected) =>
+            throw new InvalidOperationException(
+                $"类型不匹配: 期望 {expected}，实际存储 {_type}。");
     }
 }
