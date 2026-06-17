@@ -14,6 +14,9 @@ namespace NModbus.IO
     /// </summary>
     internal class ModbusAsciiTransport : ModbusSerialTransport, IModbusAsciiTransport
     {
+        /// <summary>Reusable 1-byte buffer for ReadLineAsync, avoiding per-char allocations.</summary>
+        private readonly byte[] _readBuffer = new byte[1];
+
         internal ModbusAsciiTransport(IStreamResource streamResource, IModbusFactory modbusFactory, IModbusLogger logger)
             : base(streamResource, modbusFactory, logger)
         {
@@ -106,17 +109,16 @@ namespace NModbus.IO
         private async Task<string> ReadLineAsync(CancellationToken cancellationToken = default)
         {
             var sb = new StringBuilder();
-            var buffer = new byte[1];
 
             while (true)
             {
-                int bytesRead = await StreamResource.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                int bytesRead = await StreamResource.ReadAsync(_readBuffer.AsMemory(), cancellationToken).ConfigureAwait(false);
                 if (bytesRead == 0)
                 {
                     throw new IOException("End of stream while reading ASCII frame.");
                 }
 
-                char c = (char)buffer[0];
+                char c = (char)_readBuffer[0];
                 if (c == '\n')
                 {
                     break;

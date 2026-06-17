@@ -84,6 +84,15 @@ namespace NModbus.Data
         public byte ByteCount => (byte)networkBytes.Count;
 
         /// <summary>
+        ///     Writes the network bytes directly into the destination span (zero-allocation).
+        /// </summary>
+        public void WriteNetworkBytes(Span<byte> destination)
+        {
+            for (int i = 0; i < networkBytes.Count; i++)
+                destination[i] = networkBytes[i];
+        }
+
+        /// <summary>
         ///     Returns a <see cref="T:System.String" /> that represents the current <see cref="T:System.Object" />.
         /// </summary>
         /// <returns>

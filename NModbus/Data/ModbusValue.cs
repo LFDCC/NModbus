@@ -215,22 +215,35 @@ namespace NModbus.Data
         }
 
         // ========================================================================
-        //  泛型取值
+        //  泛型取值（零装箱，Unsafe.As 消除 (T)(object) 的堆分配）
         // ========================================================================
 
+        /// <summary>
+        /// 将存储值转为指定类型 T（零装箱）。
+        /// T 必须是 bool / short / ushort / int / uint / long / ulong / float / double 之一。
+        /// </summary>
         public T To<T>()
         {
-            var t = typeof(T);
-            if (t == typeof(bool)) return (T)(object)ToBool();
-            if (t == typeof(short)) return (T)(object)ToInt16();
-            if (t == typeof(ushort)) return (T)(object)ToUInt16();
-            if (t == typeof(int)) return (T)(object)ToInt32();
-            if (t == typeof(uint)) return (T)(object)ToUInt32();
-            if (t == typeof(long)) return (T)(object)ToInt64();
-            if (t == typeof(ulong)) return (T)(object)ToUInt64();
-            if (t == typeof(float)) return (T)(object)ToFloat();
-            if (t == typeof(double)) return (T)(object)ToDouble();
-            throw new NotSupportedException($"不支持的类型: {t.Name}");
+            if (typeof(T) == typeof(bool))    return As<bool, T>(_intVal != 0);
+            if (typeof(T) == typeof(short))   return As<short, T>((short)_intVal);
+            if (typeof(T) == typeof(ushort))  return As<ushort, T>((ushort)_intVal);
+            if (typeof(T) == typeof(int))     return As<int, T>((int)_intVal);
+            if (typeof(T) == typeof(uint))    return As<uint, T>((uint)_intVal);
+            if (typeof(T) == typeof(long))    return As<long, T>(_intVal);
+            if (typeof(T) == typeof(ulong))   return As<ulong, T>(_ulongVal);
+            if (typeof(T) == typeof(float))   return As<float, T>((float)_dblVal);
+            if (typeof(T) == typeof(double))  return As<double, T>(_dblVal);
+            throw new NotSupportedException($"不支持的类型: {typeof(T).Name}");
+        }
+
+        /// <summary>
+        /// 零装箱类型重解释辅助。调用方通过 <c>typeof(T) == typeof(TFrom)</c>
+        /// 证明了 TFrom 与 T 是同一运行时类型，reinterpret 为恒等变换。
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static TTo As<TFrom, TTo>(TFrom value)
+        {
+            return Unsafe.As<TFrom, TTo>(ref value);
         }
 
         // ========================================================================

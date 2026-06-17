@@ -63,9 +63,8 @@
             }
             finally
             {
-                _semaphore.Release();
-
                 _stopwatch.Restart();
+                _semaphore.Release();
             }
         }
 

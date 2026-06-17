@@ -49,13 +49,9 @@ namespace NModbus.Message
         {
             get
             {
-                var pdu = ProtocolDataUnit;
-                var frame = new MemoryStream(1 + pdu.Length);
-
-                frame.WriteByte(SlaveAddress);
-                frame.Write(pdu, 0, pdu.Length);
-
-                return frame.ToArray();
+                var frame = new byte[MessageFrameLength];
+                WriteMessageFrame(frame);
+                return frame;
             }
         }
 
@@ -63,41 +59,9 @@ namespace NModbus.Message
         {
             get
             {
-                List<byte> pdu = new List<byte>();
-
-                pdu.Add(FunctionCode);
-
-                if (ExceptionCode.HasValue)
-                {
-                    pdu.Add(ExceptionCode.Value);
-                }
-
-                if (SubFunctionCode.HasValue)
-                {
-                    pdu.AddRange(BitConverter.GetBytes(IPAddress.HostToNetworkOrder((short)SubFunctionCode.Value)));
-                }
-
-                if (StartAddress.HasValue)
-                {
-                    pdu.AddRange(BitConverter.GetBytes(IPAddress.HostToNetworkOrder((short)StartAddress.Value)));
-                }
-
-                if (NumberOfPoints.HasValue)
-                {
-                    pdu.AddRange(BitConverter.GetBytes(IPAddress.HostToNetworkOrder((short)NumberOfPoints.Value)));
-                }
-
-                if (ByteCount.HasValue)
-                {
-                    pdu.Add(ByteCount.Value);
-                }
-
-                if (Data != null)
-                {
-                    pdu.AddRange(Data.NetworkBytes);
-                }
-
-                return pdu.ToArray();
+                var pdu = new byte[ProtocolDataUnitLength];
+                WriteProtocolDataUnit(pdu);
+                return pdu;
             }
         }
 
@@ -196,8 +160,9 @@ namespace NModbus.Message
 
             if (Data != null)
             {
-                Data.NetworkBytes.CopyTo(destination.Slice(offset));
-                offset += Data.NetworkBytes.Length;
+                int byteCount = Data.ByteCount;
+                Data.WriteNetworkBytes(destination.Slice(offset, byteCount));
+                offset += byteCount;
             }
 
             return offset;

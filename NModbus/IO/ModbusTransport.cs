@@ -16,8 +16,11 @@ namespace NModbus.IO
     /// </summary>
     public abstract class ModbusTransport : IModbusTransport
     {
-        private readonly object _syncLock = new object();
-        protected readonly SemaphoreSlim _asyncLock = new SemaphoreSlim(1, 1);
+        /// <summary>
+        /// 统一的信号量，同步路径调用 Wait()/Release()，异步路径调用 WaitAsync()/Release()。
+        /// 确保同步与异步调用互斥，避免 data race。
+        /// </summary>
+        private readonly SemaphoreSlim _syncLock = new SemaphoreSlim(1, 1);
         private int _retries = Modbus.DefaultRetries;
         private int _waitToRetryMilliseconds = Modbus.DefaultWaitToRetryMilliseconds;
         private IStreamResource _streamResource;
@@ -124,9 +127,14 @@ namespace NModbus.IO
         /// <param name="message">The message to broadcast.</param>
         public virtual void BroadcastWrite(IModbusMessage message)
         {
-            lock (_syncLock)
+            _syncLock.Wait();
+            try
             {
                 Write(message);
+            }
+            finally
+            {
+                _syncLock.Release();
             }
         }
 
@@ -135,15 +143,14 @@ namespace NModbus.IO
         /// </summary>
         public virtual async Task BroadcastWriteAsync(IModbusMessage message, CancellationToken cancellationToken = default)
         {
-            await _asyncLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-
+            await _syncLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 await WriteAsync(message, cancellationToken).ConfigureAwait(false);
             }
             finally
             {
-                _asyncLock.Release();
+                _syncLock.Release();
             }
         }
 
@@ -161,8 +168,7 @@ namespace NModbus.IO
             {
                 try
                 {
-                    await _asyncLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-
+                    await _syncLock.WaitAsync(cancellationToken).ConfigureAwait(false);
                     try
                     {
                         await WriteAsync(message, cancellationToken).ConfigureAwait(false);
@@ -198,7 +204,7 @@ namespace NModbus.IO
                     }
                     finally
                     {
-                        _asyncLock.Release();
+                        _syncLock.Release();
                     }
 
                     ValidateResponse(message, response);
@@ -264,7 +270,8 @@ namespace NModbus.IO
             {
                 try
                 {
-                    lock (_syncLock)
+                    _syncLock.Wait();
+                    try
                     {
                         Write(message);
 
@@ -296,6 +303,10 @@ namespace NModbus.IO
                             }
                         }
                         while (readAgain);
+                    }
+                    finally
+                    {
+                        _syncLock.Release();
                     }
 
                     ValidateResponse(message, response);
@@ -475,7 +486,7 @@ namespace NModbus.IO
             if (disposing)
             {
                 DisposableUtility.Dispose(ref _streamResource);
-                _asyncLock.Dispose();
+                _syncLock.Dispose();
             }
         }
 
