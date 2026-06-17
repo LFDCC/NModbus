@@ -55,8 +55,19 @@ foreach ($proj in $Projects) {
 # 5. 发布
 Write-Host "[5/5] 发布到 NuGet.org..." -ForegroundColor Yellow
 $nupkgs = Get-ChildItem -Path $OutputDir -Filter "*.nupkg"
+
+if (-not $nupkgs -or $nupkgs.Count -eq 0) {
+    Write-Host "  × 未找到 .nupkg 文件！请检查打包步骤。" -ForegroundColor Red
+    exit 1
+}
+
 foreach ($pkg in $nupkgs) {
-    dotnet nuget push $pkg.FullName --api-key $ApiKey --source https://api.nuget.org/v3/index.json --skip-duplicate 2>&1 | Out-Null
+    Write-Host "  推送 $($pkg.Name) ..." -ForegroundColor Gray
+    dotnet nuget push $pkg.FullName --api-key $ApiKey --source https://api.nuget.org/v3/index.json --skip-duplicate
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  × $($pkg.Name) 发布失败 (exit code $LASTEXITCODE)" -ForegroundColor Red
+        exit 1
+    }
     Write-Host "  √ $($pkg.Name)" -ForegroundColor Green
 }
 
