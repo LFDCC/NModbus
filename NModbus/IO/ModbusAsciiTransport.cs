@@ -14,8 +14,9 @@ namespace NModbus.IO
     /// </summary>
     internal class ModbusAsciiTransport : ModbusSerialTransport, IModbusAsciiTransport
     {
-        /// <summary>Reusable 1-byte buffer for ReadLineAsync, avoiding per-char allocations.</summary>
-        private readonly byte[] _readBuffer = new byte[1];
+        /// <summary>Reusable read buffer for ReadLineAsync. Sized to fit a full ASCII frame in a single
+        /// underlying async read, eliminating per-byte syscall overhead.</summary>
+        private readonly byte[] _readBuffer = new byte[1024];
 
         internal ModbusAsciiTransport(IStreamResource streamResource, IModbusFactory modbusFactory, IModbusLogger logger)
             : base(streamResource, modbusFactory, logger)
@@ -106,19 +107,37 @@ namespace NModbus.IO
             return frame;
         }
 
+        // Maximum ASCII frame length — see StreamResourceUtility.MaxAsciiFrameLength for rationale
+        private const int MaxAsciiFrameLength = 512;
+
         private async Task<string> ReadLineAsync(CancellationToken cancellationToken = default)
         {
-            var sb = new StringBuilder();
+            // Pre-size to the max frame size so we never reallocate.
+            var sb = new StringBuilder(MaxAsciiFrameLength);
+
+            int bufferPos = 0;
+            int bufferLen = 0;
 
             while (true)
             {
-                int bytesRead = await StreamResource.ReadAsync(_readBuffer.AsMemory(), cancellationToken).ConfigureAwait(false);
-                if (bytesRead == 0)
+                if (sb.Length > MaxAsciiFrameLength)
                 {
-                    throw new IOException("End of stream while reading ASCII frame.");
+                    throw new IOException($"ASCII frame exceeded maximum allowed length ({MaxAsciiFrameLength} chars). Possible DoS or corrupt stream.");
                 }
 
-                char c = (char)_readBuffer[0];
+                // Refill the buffer when drained.
+                if (bufferPos >= bufferLen)
+                {
+                    bufferLen = await StreamResource.ReadAsync(_readBuffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    if (bufferLen == 0)
+                    {
+                        throw new IOException("End of stream while reading ASCII frame.");
+                    }
+                    bufferPos = 0;
+                }
+
+                // ASCII frames are 7-bit clean; cast is safe.
+                char c = (char)_readBuffer[bufferPos++];
                 if (c == '\n')
                 {
                     break;

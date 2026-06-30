@@ -82,8 +82,8 @@ namespace NModbus.Message
                 throw new FormatException("Message frame does not contain enough bytes.");
             }
 
-            StartAddress = (ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(frame, 2));
-            NumberOfPoints = (ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(frame, 4));
+            StartAddress = ReadUInt16BigEndian(frame, 2);
+            NumberOfPoints = ReadUInt16BigEndian(frame, 4);
             ByteCount = frame[6];
             Data = new RegisterCollection(frame.Slice(7, ByteCount).ToArray());
         }

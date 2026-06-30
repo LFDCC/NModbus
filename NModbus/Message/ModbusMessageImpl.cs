@@ -107,7 +107,7 @@ namespace NModbus.Message
                     length += 1;
 
                 if (Data != null)
-                    length += Data.NetworkBytes.Length;
+                    length += Data.ByteCount;
 
                 return length;
             }

@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Linq;
+using System.Buffers.Binary;
 using System.Threading.Tasks;
 
 namespace NModbus.Extensions.Enron
@@ -103,29 +103,34 @@ namespace NModbus.Extensions.Enron
 			if (master == null)	throw new ArgumentNullException(nameof(master));
 			if (data == null) throw new ArgumentNullException(nameof(data));
 
-			master.WriteMultipleRegisters(slaveAddress, startAddress, ConvertFrom32(data).ToArray());
-		}
+		master.WriteMultipleRegisters(slaveAddress, startAddress, ConvertFrom32(data));
+	}
 
-		/// <summary> Convert the 32 bit registers to two 16 bit values. </summary>
-		public static ushort[] ConvertFrom32(uint[] registers)
+	/// <summary> Convert the 32 bit registers to two 16 bit values. </summary>
+	public static ushort[] ConvertFrom32(uint[] registers)
+	{
+		var result = new ushort[registers.Length * 2];
+
+		// Enron packs a 32-bit value as high-order ushort first, then low-order ushort.
+		// Use a fixed little-endian representation so the result is identical on every host
+		// endianness (the previous BitConverter.GetBytes(uint) was host-endian and would
+		// silently corrupt values on big-endian machines).
+		Span<byte> bytes = stackalloc byte[4];
+		var index = 0;
+
+		foreach (var register in registers)
 		{
-			var result = new ushort[registers.Length * 2];
+			BinaryPrimitives.WriteUInt32LittleEndian(bytes, register);
 
-			var index = 0;
+			// low order value (bytes 2-3)
+			result[index++] = BinaryPrimitives.ReadUInt16LittleEndian(bytes.Slice(2));
 
-			foreach (var register in registers)
-			{
-				var bytes = BitConverter.GetBytes(register);
-
-                // low order value
-                result[index++] = BitConverter.ToUInt16(bytes, 2);
-
-				// high order value
-				result[index++] = BitConverter.ToUInt16(bytes, 0);
-			}
-
-			return result;
+			// high order value (bytes 0-1)
+			result[index++] = BinaryPrimitives.ReadUInt16LittleEndian(bytes.Slice(0));
 		}
+
+		return result;
+	}
 
         /// <summary> Convert the double 16 bit registers to single 32 bit values. </summary>
         public static uint[] ConvertTo32(ushort[] registers)

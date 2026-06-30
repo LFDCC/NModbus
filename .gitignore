@@ -232,3 +232,6 @@ _Pvt_Extensions
 /NModbus.Serial/log.txt
 _site/
 NModbus.Serial/api/
+
+# WorkBuddy agent workspace
+.workbuddy/

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers.Binary;
 
 namespace NModbus.Message
 {
@@ -61,6 +62,15 @@ namespace NModbus.Message
 
             _messageImpl.Initialize(frame);
             InitializeUnique(frame);
+        }
+
+        /// <summary>
+        ///     Read a big-endian 16-bit value at the given offset. Zero-allocation span-based replacement
+        ///     for <c>(ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(frame, offset))</c>.
+        /// </summary>
+        protected static ushort ReadUInt16BigEndian(byte[] frame, int offset)
+        {
+            return BinaryPrimitives.ReadUInt16BigEndian(frame.AsSpan(offset));
         }
 
         protected abstract void InitializeUnique(byte[] frame);

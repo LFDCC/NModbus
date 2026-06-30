@@ -1,13 +1,11 @@
-﻿namespace NModbus.Device
-{
-    using NModbus;
-    using System;
-    using System.Collections.Generic;
-    using System.Diagnostics;
-    using System.Linq;
-    using System.Threading;
-    using System.Threading.Tasks;
+﻿using NModbus;
+using System;
+using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 
+namespace NModbus.Device
+{
     /// <summary>
     /// Provides concurrency control across multiple Modbus readers/writers.
     /// </summary>
@@ -44,22 +42,22 @@
 
         private async Task<T> PerformFuncAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken)
         {
-            T value = default(T);
+            T value = default;
 
-            await PerformAsync(async () => value = await action(), cancellationToken);
+            await PerformAsync(async () => value = await action().ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 
             return value;
         }
 
         private async Task PerformAsync(Func<Task> action, CancellationToken cancellationToken)
         {
-            await _semaphore.WaitAsync(cancellationToken);
+            await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
 
             try
             {
-                await WaitAsync(cancellationToken);
+                await WaitAsync(cancellationToken).ConfigureAwait(false);
 
-                await action();
+                await action().ConfigureAwait(false);
             }
             finally
             {
@@ -70,22 +68,23 @@
 
         public async Task<ushort[]> ReadInputRegistersAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints, ushort blockSize, CancellationToken cancellationToken)
         {
-            return await PerformFuncAsync(async ()  =>
+            return await PerformFuncAsync(async () =>
             {
-                List<ushort> registers = new List<ushort>(numberOfPoints);
+                // Pre-allocate the result buffer; no intermediate List allocation.
+                ushort[] result = new ushort[numberOfPoints];
 
                 int soFar = 0;
                 int thisRead = blockSize;
 
                 while (soFar < numberOfPoints)
                 {
-                    //If we're _not_ on the first run through here, wait for the min time
+                    // If we're _not_ on the first run through here, wait for the min time
                     if (soFar > 0)
                     {
-                        await Task.Delay(_minInterval, cancellationToken);
+                        await Task.Delay(_minInterval, cancellationToken).ConfigureAwait(false);
                     }
 
-                    //Check to see if we've ben cancelled
+                    // Check to see if we've been cancelled
                     cancellationToken.ThrowIfCancellationRequested();
 
                     if (thisRead > (numberOfPoints - soFar))
@@ -93,39 +92,44 @@
                         thisRead = numberOfPoints - soFar;
                     }
 
-                    //Perform this operation
-                    ushort[] registersFromThisRead = await _master.ReadInputRegistersAsync(slaveAddress, (ushort)(startAddress + soFar), (ushort)thisRead, cancellationToken).ConfigureAwait(false);
+                    // Perform this operation
+                    ushort[] registersFromThisRead = await _master.ReadInputRegistersAsync(
+                        slaveAddress,
+                        (ushort)(startAddress + soFar),
+                        (ushort)thisRead,
+                        cancellationToken).ConfigureAwait(false);
 
-                    //Add these to the result
-                    registers.AddRange(registersFromThisRead);
+                    // Copy into the pre-allocated result buffer
+                    Buffer.BlockCopy(registersFromThisRead, 0, result, soFar * 2, thisRead * 2);
 
-                    //Increment where we're at
+                    // Increment where we're at
                     soFar += thisRead;
                 }
 
-                return registers.ToArray();
+                return result;
 
-            }, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
         }
 
-        public Task<ushort[]> ReadHoldingRegistersAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints, ushort blockSize, CancellationToken cancellationToken)
+        public async Task<ushort[]> ReadHoldingRegistersAsync(byte slaveAddress, ushort startAddress, ushort numberOfPoints, ushort blockSize, CancellationToken cancellationToken)
         {
-            return PerformFuncAsync(async () =>
+            return await PerformFuncAsync(async () =>
             {
-                List<ushort> registers = new List<ushort>(numberOfPoints);
+                // Pre-allocate the result buffer; no intermediate List allocation.
+                ushort[] result = new ushort[numberOfPoints];
 
                 int soFar = 0;
                 int thisRead = blockSize;
 
                 while (soFar < numberOfPoints)
                 {
-                    //If we're _not_ on the first run through here, wait for the min time
+                    // If we're _not_ on the first run through here, wait for the min time
                     if (soFar > 0)
                     {
-                        await Task.Delay(_minInterval, cancellationToken);
+                        await Task.Delay(_minInterval, cancellationToken).ConfigureAwait(false);
                     }
 
-                    //Check to see if we've ben cancelled
+                    // Check to see if we've been cancelled
                     cancellationToken.ThrowIfCancellationRequested();
 
                     if (thisRead > (numberOfPoints - soFar))
@@ -133,34 +137,38 @@
                         thisRead = numberOfPoints - soFar;
                     }
 
-                    //Perform this operation
-                    ushort[] registersFromThisRead = await _master.ReadHoldingRegistersAsync(slaveAddress, (ushort)(startAddress + soFar), (ushort)thisRead, cancellationToken).ConfigureAwait(false);
+                    // Perform this operation
+                    ushort[] registersFromThisRead = await _master.ReadHoldingRegistersAsync(
+                        slaveAddress,
+                        (ushort)(startAddress + soFar),
+                        (ushort)thisRead,
+                        cancellationToken).ConfigureAwait(false);
 
-                    //Add these to the result
-                    registers.AddRange(registersFromThisRead);
+                    // Copy into the pre-allocated result buffer
+                    Buffer.BlockCopy(registersFromThisRead, 0, result, soFar * 2, thisRead * 2);
 
-                    //Increment where we're at
+                    // Increment where we're at
                     soFar += thisRead;
                 }
 
-                return registers.ToArray();
+                return result;
 
-            }, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
         }
 
-        public Task WriteMultipleRegistersAsync(byte slaveAddress, ushort startAddress, ushort[] data, ushort blockSize, CancellationToken cancellationToken)
+        public async Task WriteMultipleRegistersAsync(byte slaveAddress, ushort startAddress, ushort[] data, ushort blockSize, CancellationToken cancellationToken)
         {
-            return PerformAsync(async () =>
+            await PerformAsync(async () =>
             {
                 int soFar = 0;
                 int thisWrite = blockSize;
 
                 while (soFar < data.Length)
                 {
-                    //If we're _not_ on the first run through here, wait for the min time
+                    // If we're _not_ on the first run through here, wait for the min time
                     if (soFar > 0)
                     {
-                        await Task.Delay(_minInterval, cancellationToken);
+                        await Task.Delay(_minInterval, cancellationToken).ConfigureAwait(false);
                     }
 
                     if (thisWrite > (data.Length - soFar))
@@ -168,14 +176,20 @@
                         thisWrite = data.Length - soFar;
                     }
 
-                    ushort[] registers = data.Skip(soFar).Take(thisWrite).ToArray();
+                    // Slice without LINQ: use a sub-array copy
+                    ushort[] registers = new ushort[thisWrite];
+                    Buffer.BlockCopy(data, soFar * 2, registers, 0, thisWrite * 2);
 
-                    await _master.WriteMultipleRegistersAsync(slaveAddress, (ushort) (startAddress + soFar), registers, cancellationToken).ConfigureAwait(false);
+                    await _master.WriteMultipleRegistersAsync(
+                        slaveAddress,
+                        (ushort)(startAddress + soFar),
+                        registers,
+                        cancellationToken).ConfigureAwait(false);
 
                     soFar += thisWrite;
                 }
 
-            }, cancellationToken);  
+            }, cancellationToken).ConfigureAwait(false);
         }
 
         public Task WriteSingleRegisterAsync(byte slaveAddress, ushort address, ushort value, CancellationToken cancellationToken)
@@ -211,8 +225,8 @@
                 _isDisposed = true;
 
                 _master.Dispose();
+                _semaphore.Dispose();
             }
         }
     }
-
 }

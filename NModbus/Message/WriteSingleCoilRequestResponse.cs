@@ -57,7 +57,7 @@ namespace NModbus.Message
 
         protected override void InitializeUnique(byte[] frame)
         {
-            StartAddress = (ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(frame, 2));
+            StartAddress = ReadUInt16BigEndian(frame, 2);
             Data = new RegisterCollection(frame.Slice(4, 2).ToArray());
         }
     }

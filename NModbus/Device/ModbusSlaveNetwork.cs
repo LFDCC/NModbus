@@ -63,7 +63,7 @@ namespace NModbus.Device
                 // only service requests addressed to our slaves
                 if (slave == null)
                 {
-                    Console.WriteLine($"NModbus Slave Network ignoring request intended for NModbus Slave {request.SlaveAddress}");
+                    Logger.Warning($"NModbus Slave Network ignoring request intended for NModbus Slave {request.SlaveAddress}");
                 }
                 else
                 {

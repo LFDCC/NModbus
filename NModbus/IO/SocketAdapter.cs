@@ -24,14 +24,13 @@ namespace NModbus.IO
         public int InfiniteTimeout => Timeout.Infinite;
         public int ReadTimeout
         {
-            get => _socketClient.SendTimeout;
-            set => _socketClient.SendTimeout = value;
-
+            get => _socketClient.ReceiveTimeout;
+            set => _socketClient.ReceiveTimeout = value;
         }
         public int WriteTimeout
         {
-            get => _socketClient.ReceiveTimeout;
-            set => _socketClient.ReceiveTimeout = value;
+            get => _socketClient.SendTimeout;
+            set => _socketClient.SendTimeout = value;
         }
         public void DiscardInBuffer()
         {

@@ -1,8 +1,5 @@
 ﻿using System;
 using System.Buffers.Binary;
-using System.Linq;
-using System.Net;
-using System.Text;
 
 namespace NModbus.Utility
 {
@@ -94,23 +91,61 @@ namespace NModbus.Utility
         }
 
         /// <summary>
-        ///     Converts an array of bytes to an ASCII byte array.
+        ///     Converts an array of bytes to an ASCII byte array (uppercase hex).
+        ///     Each byte becomes two ASCII characters ("X2" format).
         /// </summary>
         /// <param name="numbers">The byte array.</param>
         /// <returns>An array of ASCII byte values.</returns>
         public static byte[] GetAsciiBytes(params byte[] numbers)
         {
-            return Encoding.UTF8.GetBytes(numbers.SelectMany(n => n.ToString("X2")).ToArray());
+            if (numbers == null) throw new ArgumentNullException(nameof(numbers));
+
+            // Single allocation: convert each byte directly to its two ASCII hex chars.
+            // Replaces the previous SelectMany(n => n.ToString("X2")).ToArray() + Encoding.GetBytes
+            // pattern that allocated a char[] and an intermediate string per byte.
+            byte[] result = new byte[numbers.Length * 2];
+
+            for (int i = 0; i < numbers.Length; i++)
+            {
+                byte b = numbers[i];
+                byte hi = (byte)(b >> 4);
+                byte lo = (byte)(b & 0x0F);
+
+                result[i * 2]     = (byte)(hi < 10 ? '0' + hi : 'A' + hi - 10);
+                result[i * 2 + 1] = (byte)(lo < 10 ? '0' + lo : 'A' + lo - 10);
+            }
+
+            return result;
         }
 
         /// <summary>
-        ///     Converts an array of UInt16 to an ASCII byte array.
+        ///     Converts an array of UInt16 to an ASCII byte array (uppercase hex).
+        ///     Each ushort becomes four ASCII characters ("X4" format).
         /// </summary>
         /// <param name="numbers">The ushort array.</param>
         /// <returns>An array of ASCII byte values.</returns>
         public static byte[] GetAsciiBytes(params ushort[] numbers)
         {
-            return Encoding.UTF8.GetBytes(numbers.SelectMany(n => n.ToString("X4")).ToArray());
+            if (numbers == null) throw new ArgumentNullException(nameof(numbers));
+
+            byte[] result = new byte[numbers.Length * 4];
+
+            for (int i = 0; i < numbers.Length; i++)
+            {
+                ushort v = numbers[i];
+                byte b3 = (byte)((v >> 12) & 0x0F);
+                byte b2 = (byte)((v >> 8)  & 0x0F);
+                byte b1 = (byte)((v >> 4)  & 0x0F);
+                byte b0 = (byte)(v         & 0x0F);
+
+                int o = i * 4;
+                result[o]     = (byte)(b3 < 10 ? '0' + b3 : 'A' + b3 - 10);
+                result[o + 1] = (byte)(b2 < 10 ? '0' + b2 : 'A' + b2 - 10);
+                result[o + 2] = (byte)(b1 < 10 ? '0' + b1 : 'A' + b1 - 10);
+                result[o + 3] = (byte)(b0 < 10 ? '0' + b0 : 'A' + b0 - 10);
+            }
+
+            return result;
         }
 
         /// <summary>

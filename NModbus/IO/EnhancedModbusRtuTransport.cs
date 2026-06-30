@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -260,10 +261,11 @@ namespace NModbus.IO
             }
 
             // Read and verify CRC
+            // RTU CRC is transmitted low-byte first (little-endian)
             byte[] crcBytes = Read(2);
             byte[] dataFrame = frame.ToArray();
-            ushort received = (ushort)(crcBytes[0] | (crcBytes[1] << 8));
-            ushort calculated = BitConverter.ToUInt16(ModbusUtility.CalculateCrc(dataFrame), 0);
+            ushort received = BinaryPrimitives.ReadUInt16LittleEndian(crcBytes);
+            ushort calculated = ModbusUtility.CalculateCrc(dataFrame.AsSpan());
 
             if (received != calculated)
                 throw new IOException($"Device ID response CRC mismatch. Received: 0x{received:X4}, calculated: 0x{calculated:X4}");
@@ -309,10 +311,11 @@ namespace NModbus.IO
             }
 
             // Read and verify CRC
+            // RTU CRC is transmitted low-byte first (little-endian)
             byte[] crcBytes = await ReadAsync(2, cancellationToken).ConfigureAwait(false);
             byte[] dataFrame = frame.ToArray();
-            ushort received = (ushort)(crcBytes[0] | (crcBytes[1] << 8));
-            ushort calculated = BitConverter.ToUInt16(ModbusUtility.CalculateCrc(dataFrame), 0);
+            ushort received = BinaryPrimitives.ReadUInt16LittleEndian(crcBytes);
+            ushort calculated = ModbusUtility.CalculateCrc(dataFrame.AsSpan());
 
             if (received != calculated)
                 throw new IOException($"Device ID response CRC mismatch. Received: 0x{received:X4}, calculated: 0x{calculated:X4}");

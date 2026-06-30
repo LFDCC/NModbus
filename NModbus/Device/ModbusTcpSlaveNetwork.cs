@@ -214,15 +214,28 @@ namespace NModbus.Device
 #endif
         private void OnMasterConnectionClosedHandler(object sender, TcpConnectionEventArgs e)
         {
-            ModbusMasterTcpConnection connection;
-
-            if (!_masters.TryRemove(e.EndPoint, out connection))
+            // The connection may raise the closed event from both its handler loop and its
+            // Dispose path (or from a graceful close followed by an exception). The
+            // connection guards against duplicate raises internally, but the slave network
+            // may still see the event after the entry has already been removed from _masters
+            // (e.g. when Dispose already cleaned it up). Treat a missing entry as a benign
+            // race, not an error — never throw here, or the exception escapes into an
+            // unobserved task.
+            if (!_masters.TryRemove(e.EndPoint, out ModbusMasterTcpConnection connection))
             {
-                string msg = $"EndPoint {e.EndPoint} cannot be removed, it does not exist.";
-                throw new ArgumentException(msg);
+                Logger.Debug($"EndPoint {e.EndPoint} already removed from master table (likely closed during Dispose).");
+                return;
             }
 
-            connection.Dispose();
+            try
+            {
+                connection.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Error disposing connection for Master {e.EndPoint}: {ex.Message}");
+            }
+
             Logger.Information($"Removed Master {e.EndPoint}");
         }
     }

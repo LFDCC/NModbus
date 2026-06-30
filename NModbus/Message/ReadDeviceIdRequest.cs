@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using NModbus.Data;
 
 namespace NModbus.Message
@@ -59,7 +58,7 @@ namespace NModbus.Message
         };
 
         /// <summary>Gets the protocol data unit (frame without slave address).</summary>
-        public byte[] ProtocolDataUnit => MessageFrame.Skip(1).ToArray();
+        public byte[] ProtocolDataUnit => MessageFrame.AsSpan(1).ToArray();
 
         /// <summary>Initializes the request from a raw frame.</summary>
         /// <param name="frame">The raw frame (minimum 5 bytes).</param>

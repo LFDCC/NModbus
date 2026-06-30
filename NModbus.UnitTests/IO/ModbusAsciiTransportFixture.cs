@@ -29,14 +29,18 @@ namespace NModbus.UnitTests.IO
             var mock = new Mock<IStreamResource>(MockBehavior.Strict);
             IStreamResource stream = mock.Object;
             var transport = new ModbusAsciiTransport(stream, new ModbusFactory(), NullModbusLogger.Instance);
-            int calls = 0;
             byte[] bytes = Encoding.ASCII.GetBytes(":110100130025B6\r\n");
 
-            mock.Setup(s => s.Read(It.Is<byte[]>(x => x.Length == 1), 0, 1))
-                .Returns((byte[] buffer, int offset, int count) =>
+            // The new ReadLine implementation reads in batches; feed the whole frame in one call.
+            int offset = 0;
+            mock.Setup(s => s.Read(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>()))
+                .Returns((byte[] buffer, int bufOffset, int count) =>
                 {
-                    buffer[offset] = bytes[calls++];
-                    return 1;
+                    int toCopy = System.Math.Min(count, bytes.Length - offset);
+                    if (toCopy <= 0) return 0;
+                    System.Buffer.BlockCopy(bytes, offset, buffer, bufOffset, toCopy);
+                    offset += toCopy;
+                    return toCopy;
                 });
 
             Assert.Equal(new byte[] { 17, 1, 0, 19, 0, 37, 182 }, transport.ReadRequestResponse());
@@ -49,14 +53,17 @@ namespace NModbus.UnitTests.IO
             var mock = new Mock<IStreamResource>(MockBehavior.Strict);
             IStreamResource stream = mock.Object;
             var transport = new ModbusAsciiTransport(stream, new ModbusFactory(), NullModbusLogger.Instance);
-            int calls = 0;
             byte[] bytes = Encoding.ASCII.GetBytes(":10\r\n");
 
-            mock.Setup(s => s.Read(It.Is<byte[]>(x => x.Length == 1), 0, 1))
-                .Returns((byte[] buffer, int offset, int count) =>
+            int offset = 0;
+            mock.Setup(s => s.Read(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>()))
+                .Returns((byte[] buffer, int bufOffset, int count) =>
                 {
-                    buffer[offset] = bytes[calls++];
-                    return 1;
+                    int toCopy = System.Math.Min(count, bytes.Length - offset);
+                    if (toCopy <= 0) return 0;
+                    System.Buffer.BlockCopy(bytes, offset, buffer, bufOffset, toCopy);
+                    offset += toCopy;
+                    return toCopy;
                 });
 
             Assert.Throws<IOException>(() => transport.ReadRequestResponse());

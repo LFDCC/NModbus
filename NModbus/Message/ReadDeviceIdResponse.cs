@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using NModbus.Data;
 
 namespace NModbus.Message
@@ -48,7 +47,7 @@ namespace NModbus.Message
         public byte[] MessageFrame { get; private set; }
 
         /// <summary>Gets the protocol data unit (frame without slave address).</summary>
-        public byte[] ProtocolDataUnit => MessageFrame?.Skip(1).ToArray();
+        public byte[] ProtocolDataUnit => MessageFrame == null ? null : MessageFrame.AsSpan(1).ToArray();
 
         // Standard object convenience properties
         /// <summary>Gets the vendor name (object 0x00), or null if not present.</summary>

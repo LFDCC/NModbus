@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Linq;
 using NModbus.Extensions;
 
 namespace NModbus.Logging
@@ -87,15 +86,22 @@ namespace NModbus.Logging
 
         private static void LogFrame(this IModbusLogger logger, string validPrefix, string invalidPrefix, byte[] frame)
         {
-            if (logger.ShouldLog(LoggingLevel.Trace))
+            if (!logger.ShouldLog(LoggingLevel.Trace))
             {
-                if (logger.ShouldLog(LoggingLevel.Trace))
-                {
-                    string prefix = frame.DoesCrcMatch() ? validPrefix : invalidPrefix;
-
-                    logger.Trace($"{prefix}: {string.Join(" ", frame.Select(b => b.ToString("X2")))}");
-                }
+                return;
             }
+
+            // For RTU frames (>= 4 bytes), the CRC is in the last two bytes — use it to pick
+            // the TX/RX vs tx/rx prefix. For shorter frames (e.g. IP), skip the CRC check.
+            // Convert.ToHexString is a single alloc-free call (NET6+) replacing the previous
+            // Select(b => b.ToString("X2")) + string.Join pattern that allocated an enumerator
+            // and a string per byte.
+            string prefix = (frame != null && frame.Length >= 4 && frame.DoesCrcMatch())
+                ? validPrefix
+                : invalidPrefix;
+
+            string hex = frame != null ? Convert.ToHexString(frame) : "<null>";
+            logger.Trace($"{prefix}: {hex}");
         }
 
         internal static void LogFrameTx(this IModbusLogger logger, byte[] frame)

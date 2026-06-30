@@ -50,6 +50,12 @@ namespace NModbus.IO
             var frameLength = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(4));
             logger.Debug($"{frameLength} bytes in PDU.");
 
+            // Validate MBAP Length field: must be 1..260 (Unit ID + PDU; PDU max = 253+6 padding)
+            if (frameLength == 0)
+                throw new IOException($"Invalid MBAP frame length: 0. Connection may be corrupt.");
+            if (frameLength > 260)
+                throw new IOException($"Invalid MBAP frame length: {frameLength}. Exceeds maximum allowed (260). Possible DoS or corrupt frame.");
+
             // read message
             var messageFrame = new byte[frameLength];
             numBytesRead = 0;
@@ -108,7 +114,7 @@ namespace NModbus.IO
             Array.Copy(fullFrame, 6, messageFrame, 0, fullFrame.Length - 6);
 
             IModbusMessage response = CreateResponse<T>(messageFrame);
-            response.TransactionId = (ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(mbapHeader, 0));
+            response.TransactionId = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(0));
 
             return response;
         }
@@ -186,8 +192,14 @@ namespace NModbus.IO
             }
 
             Logger.Debug($"MBAP header: {string.Join(", ", mbapHeader)}");
-            var frameLength = (ushort)BinaryPrimitives.ReadInt16BigEndian(mbapHeader.AsSpan(4));
+            var frameLength = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(4));
             Logger.Debug($"{frameLength} bytes in PDU.");
+
+            // Validate MBAP Length field: must be 1..260 (Unit ID + PDU; PDU max = 253+6 padding)
+            if (frameLength == 0)
+                throw new IOException($"Invalid MBAP frame length: 0. Connection may be corrupt.");
+            if (frameLength > 260)
+                throw new IOException($"Invalid MBAP frame length: {frameLength}. Exceeds maximum allowed (260). Possible DoS or corrupt frame.");
 
             // read message
             var messageFrame = new byte[frameLength];

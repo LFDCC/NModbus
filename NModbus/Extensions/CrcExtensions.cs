@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using NModbus.Utility;
 
 namespace NModbus.Extensions
@@ -41,7 +42,7 @@ namespace NModbus.Extensions
             if (message.Length < 4)
                 throw new ArgumentException("message must be at least four bytes long");
 
-            return BitConverter.ToUInt16(message, message.Length - 2);
+            return BinaryPrimitives.ReadUInt16LittleEndian(message.AsSpan(message.Length - 2));
         }
     }
 }

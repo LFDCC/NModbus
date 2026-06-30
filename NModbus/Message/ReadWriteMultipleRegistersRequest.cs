@@ -1,8 +1,6 @@
 ﻿using System;
 using System.IO;
-using System.Linq;
 using NModbus.Data;
-using NModbus.Unme.Common;
 
 namespace NModbus.Message
 {
@@ -40,7 +38,10 @@ namespace NModbus.Message
             ByteCount = (ProtocolDataUnit[1]);
 
             // fake Data, as this modbusmessage does not fit ModbusMessageImpl
-            Data = new RegisterCollection(ProtocolDataUnit.Slice(2, ProtocolDataUnit.Length - 2).ToArray());
+            byte[] pdu = ProtocolDataUnit;
+            byte[] dataBytes = new byte[pdu.Length - 2];
+            Buffer.BlockCopy(pdu, 2, dataBytes, 0, dataBytes.Length);
+            Data = new RegisterCollection(dataBytes);
         }
 
         public byte ByteCount
@@ -56,16 +57,17 @@ namespace NModbus.Message
                 byte[] readPdu = _readRequest.ProtocolDataUnit;
                 byte[] writePdu = _writeRequest.ProtocolDataUnit;
 
-                using (var stream = new MemoryStream(readPdu.Length + writePdu.Length))
-                {
-                    stream.WriteByte(FunctionCode);
+                // Build the combined PDU directly into a single buffer — no MemoryStream, no ToArray.
+                // PDU = [FunctionCode][readPdu without FC][writePdu without FC]
+                int readLen = readPdu.Length - 1;
+                int writeLen = writePdu.Length - 1;
+                byte[] pdu = new byte[1 + readLen + writeLen];
 
-                    // read and write PDUs without function codes
-                    stream.Write(readPdu, 1, readPdu.Length - 1);
-                    stream.Write(writePdu, 1, writePdu.Length - 1);
+                pdu[0] = FunctionCode;
+                Buffer.BlockCopy(readPdu, 1, pdu, 1, readLen);
+                Buffer.BlockCopy(writePdu, 1, pdu, 1 + readLen, writeLen);
 
-                    return stream.ToArray();
-                }
+                return pdu;
             }
         }
 
@@ -118,7 +120,10 @@ namespace NModbus.Message
             ByteCount = (ProtocolDataUnit[1]);
 
             // fake Data, as this modbusmessage does not fit ModbusMessageImpl
-            Data = new RegisterCollection(ProtocolDataUnit.Slice(2, ProtocolDataUnit.Length - 2).ToArray());
+            byte[] pdu2 = ProtocolDataUnit;
+            byte[] dataBytes2 = new byte[pdu2.Length - 2];
+            Buffer.BlockCopy(pdu2, 2, dataBytes2, 0, dataBytes2.Length);
+            Data = new RegisterCollection(dataBytes2);
         }
     }
 }

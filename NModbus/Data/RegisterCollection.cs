@@ -52,15 +52,9 @@ namespace NModbus.Data
         {
             get
             {
-                var bytes = new MemoryStream(ByteCount);
-
-                foreach (ushort register in this)
-                {
-                    var b = BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((short)register));
-                    bytes.Write(b, 0, b.Length);
-                }
-
-                return bytes.ToArray();
+                var result = new byte[ByteCount];
+                WriteNetworkBytes(result);
+                return result;
             }
         }
 

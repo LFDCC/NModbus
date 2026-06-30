@@ -1,10 +1,10 @@
 ﻿using NModbus.Unme.Common;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -24,9 +24,9 @@ namespace NModbus.Data
 
         public FileRecordCollection(byte[] messageFrame)
         {
-            var fileNumber = (ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(messageFrame, 4));
-            var startingAdress = (ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(messageFrame, 6));
-            var count = (ushort)IPAddress.NetworkToHostOrder(BitConverter.ToInt16(messageFrame, 8));
+            var fileNumber = BinaryPrimitives.ReadUInt16BigEndian(messageFrame.AsSpan(4));
+            var startingAdress = BinaryPrimitives.ReadUInt16BigEndian(messageFrame.AsSpan(6));
+            var count = BinaryPrimitives.ReadUInt16BigEndian(messageFrame.AsSpan(8));
             var data = messageFrame.Slice(10, count * 2).ToArray();
 
             Build(fileNumber, startingAdress, data);
@@ -48,7 +48,9 @@ namespace NModbus.Data
             
             void addAsBytes(int value)
             {
-                values.AddRange(BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((short)value)));
+                var buf = new byte[2];
+                BinaryPrimitives.WriteUInt16BigEndian(buf, (ushort)value);
+                values.AddRange(buf);
             }
 
             addAsBytes(fileNumber);

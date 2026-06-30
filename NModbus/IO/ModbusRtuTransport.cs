@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -83,7 +84,7 @@ namespace NModbus.IO
 
         public override bool ChecksumsMatch(IModbusMessage message, byte[] messageFrame)
         {
-            ushort messageCrc = BitConverter.ToUInt16(messageFrame, messageFrame.Length - 2);
+            ushort messageCrc = BinaryPrimitives.ReadUInt16LittleEndian(messageFrame.AsSpan(messageFrame.Length - 2));
             ushort calculatedCrc = ModbusUtility.CalculateCrc(message.MessageFrame.AsSpan());
 
             return messageCrc == calculatedCrc;
