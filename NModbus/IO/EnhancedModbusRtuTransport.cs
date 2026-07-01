@@ -330,7 +330,19 @@ namespace NModbus.IO
 
             while (numBytesReadTotal != count)
             {
-                int numBytesRead = await StreamResource.ReadAsync(frameBytes.AsMemory(numBytesReadTotal, count - numBytesReadTotal), cancellationToken).ConfigureAwait(false);
+                int numBytesRead;
+                try
+                {
+                    numBytesRead = await StreamResource.ReadAsync(frameBytes.AsMemory(numBytesReadTotal, count - numBytesReadTotal), cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // RTU is half-duplex: a cancelled read leaves the slave's mid-response bytes
+                    // stranded in the serial FIFO. Purge so the next UnicastMessage doesn't fail
+                    // its CRC on stale bytes.
+                    StreamResource.DiscardInBuffer();
+                    throw;
+                }
 
                 if (numBytesRead == 0)
                 {

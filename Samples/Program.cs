@@ -44,6 +44,7 @@ namespace Samples
                 //StartModbusAsciiSlave();
                 //ModbusTcpMasterReadInputsFromModbusSlave();
                 //ModbusSerialAsciiMasterReadRegistersFromModbusSlave();
+                //ModbusSerialRtuMasterProbeUnstableDevice();
                 //StartModbusTcpSlave();
                 //StartModbusUdpSlave();
                 //StartModbusAsciiSlave();
@@ -85,6 +86,88 @@ namespace Samples
 
                 // write three registers
                 master.WriteMultipleRegisters(slaveId, startAddress, registers);
+            }
+        }
+
+        /// <summary>
+        ///     Probe-read pattern for an unstable PLC over RTU/ASCII.
+        ///
+        ///     When the main read fails, do a short-timeout probe with a CancellationToken so
+        ///     the call returns within the budget. Since 4.0.1, the serial transports call
+        ///     <c>StreamResource.DiscardInBuffer()</c> on the cancellation path, so the next
+        ///     request no longer starts in the middle of a stale frame from the previous,
+        ///     cancelled response. That lets the caller keep the same master instance and
+        ///     avoid re-opening the serial port.
+        ///
+        ///     Key rules shown below:
+        ///     * Pass <paramref name="outerCt"/> (the caller's cancel token, e.g. shutdown)
+        ///       AND a deadline via <c>CancelAfter</c>, by using <c>CreateLinkedTokenSource</c>.
+        ///       That way the probe can never outlive the caller's shutdown signal.
+        ///     * Token-based timeout is preferred over <c>Transport.ReadTimeout</c> for async
+        ///       reads — <c>SerialPort.ReadTimeout</c> is ignored on the async path.
+        ///     * For TCP (NetworkStream on .NET Framework) the underlying socket is force-closed
+        ///       when the token fires. In that environment you must rebuild the master; do not
+        ///       rely on it being reusable.
+        ///     * For RTU/ASCII the same master is reusable, because the transport cleans the FIFO.
+        /// </summary>
+        public static async Task<bool> ProbeRtuReadCoilsAsync(
+            IModbusMaster master,
+            byte slaveId,
+            ushort startAddress,
+            ushort numberOfCoils,
+            TimeSpan probeBudget,
+            CancellationToken outerCt = default)
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
+            cts.CancelAfter(probeBudget);
+
+            try
+            {
+                bool[] coils = await master.ReadCoilsAsync(slaveId, startAddress, numberOfCoils, cts.Token);
+                // Coil 0 is the healthy-device sentinel in the demo wiring below.
+                return coils.Length > 0 && coils[0];
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested && !outerCt.IsCancellationRequested)
+            {
+                // The deadline elapsed but outer was not cancelled — treat as "device slow/offline".
+                // The transport already discarded the residual FIFO bytes for us.
+                return false;
+            }
+        }
+
+        /// <summary>
+        ///     End-to-end demo of the probe pattern against an unstable RTU device.
+        ///     Simulates three states: healthy, silent, dead.
+        /// </summary>
+        public static async Task ModbusSerialRtuMasterProbeUnstableDevice()
+        {
+            using (SerialPort port = new SerialPort(PrimarySerialPortName))
+            {
+                port.BaudRate = 9600;
+                port.DataBits = 8;
+                port.Parity = Parity.None;
+                port.StopBits = StopBits.One;
+                port.Open();
+
+                var factory = new ModbusFactory();
+                IModbusMaster master = factory.CreateRtuMaster(port);
+
+                // Pretend the user wanted to react to a long-running read failure with a 500ms
+                // probe read — this is the typical shape from the README's FAQ.
+                using var appCts = new CancellationTokenSource();
+
+                for (int i = 0; i < 3; i++)
+                {
+                    bool healthy = await ProbeRtuReadCoilsAsync(
+                        master,
+                        slaveId: 1,
+                        startAddress: 0,
+                        numberOfCoils: 1,
+                        probeBudget: TimeSpan.FromMilliseconds(500),
+                        outerCt: appCts.Token);
+
+                    Console.WriteLine($"Sample {i}: device {(healthy ? "ONLINE" : "OFFLINE")}");
+                }
             }
         }
         /// <summary>

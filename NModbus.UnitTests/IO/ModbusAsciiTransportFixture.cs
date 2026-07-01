@@ -1,5 +1,8 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Moq;
 using NModbus.IO;
 using NModbus.Logging;
@@ -88,6 +91,27 @@ namespace NModbus.UnitTests.IO
             byte[] frame = { 17, ModbusFunctionCodes.ReadCoils, 0, 19, 0, 37, 181 };
 
             Assert.False(transport.ChecksumsMatch(message, frame));
+        }
+
+        [Fact]
+        public async Task ReadRequestAsync_Cancelled_DiscardsInputBuffer()
+        {
+            // ASCII is half-duplex: a cancelled read leaves the slave's mid-response bytes
+            // stranded in the serial FIFO. Verify the transport purges on cancel.
+            var mock = new Mock<IStreamResource>(MockBehavior.Strict);
+            mock.Setup(s => s.DiscardInBuffer());
+            mock.Setup(s => s.ReadAsync(It.IsAny<Memory<byte>>(), It.IsAny<CancellationToken>()))
+                .Throws(new OperationCanceledException());
+
+            var transport = new ModbusAsciiTransport(mock.Object, new ModbusFactory(), NullModbusLogger.Instance);
+
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => transport.ReadRequestAsync(cts.Token));
+
+            mock.Verify(s => s.DiscardInBuffer(), Times.Once);
         }
     }
 }

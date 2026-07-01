@@ -128,11 +128,24 @@ namespace NModbus.IO
                 // Refill the buffer when drained.
                 if (bufferPos >= bufferLen)
                 {
-                    bufferLen = await StreamResource.ReadAsync(_readBuffer.AsMemory(), cancellationToken).ConfigureAwait(false);
-                    if (bufferLen == 0)
+                    int read;
+                    try
+                    {
+                        read = await StreamResource.ReadAsync(_readBuffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // ASCII is half-duplex too: a cancelled read leaves the slave's mid-response
+                        // bytes stranded in the serial FIFO. Purge so the next UnicastMessage
+                        // doesn't start in the middle of a stale frame.
+                        StreamResource.DiscardInBuffer();
+                        throw;
+                    }
+                    if (read == 0)
                     {
                         throw new IOException("End of stream while reading ASCII frame.");
                     }
+                    bufferLen = read;
                     bufferPos = 0;
                 }
 

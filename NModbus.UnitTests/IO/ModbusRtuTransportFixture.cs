@@ -1,6 +1,8 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Moq;
 using NModbus.Data;
 using NModbus.IO;
@@ -250,6 +252,78 @@ namespace NModbus.UnitTests.IO
             Assert.Equal(new byte[] { 2, 2, 2, 3, 3 }, transport.Read(5));
 
             mock.VerifyAll();
+        }
+
+        [Fact]
+        public async Task ReadRequestAsync_Cancelled_DiscardsInputBuffer()
+        {
+            // Set up a mock whose async read always throws OCE; verify the transport:
+            //   1) propagates OperationCanceledException out of ReadRequestAsync, and
+            //   2) has called StreamResource.DiscardInBuffer exactly once before re-throwing
+            // (otherwise RTU would carry the slave's mid-response bytes into the next request).
+            var mock = new Mock<IStreamResource>(MockBehavior.Strict);
+            mock.Setup(s => s.DiscardInBuffer());
+            mock.Setup(s => s.ReadAsync(It.IsAny<Memory<byte>>(), It.IsAny<CancellationToken>()))
+                .Throws(new OperationCanceledException());
+
+            var transport = new ModbusRtuTransport(mock.Object, new ModbusFactory(), NullModbusLogger.Instance);
+
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => transport.ReadRequestAsync(cts.Token));
+
+            mock.Verify(s => s.DiscardInBuffer(), Times.Once);
+        }
+
+        [Fact]
+        public async Task ReadResponseAsync_Cancelled_DiscardsInputBuffer()
+        {
+            // Mirror of the ReadRequestAsync test, exercising the response path.
+            var mock = new Mock<IStreamResource>(MockBehavior.Strict);
+            mock.Setup(s => s.DiscardInBuffer());
+            mock.Setup(s => s.ReadAsync(It.IsAny<Memory<byte>>(), It.IsAny<CancellationToken>()))
+                .Throws(new OperationCanceledException());
+
+            var transport = new ModbusRtuTransport(mock.Object, new ModbusFactory(), NullModbusLogger.Instance);
+
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => transport.ReadResponseAsync<ReadCoilsInputsResponse>(cts.Token));
+
+            mock.Verify(s => s.DiscardInBuffer(), Times.Once);
+        }
+
+        [Fact]
+        public async Task ReadRequestAsync_NoCancellation_DoesNotDiscardInputBuffer()
+        {
+            // Sanity check: a successful read must NOT call DiscardInBuffer (the transport only
+            // purges on cancel; normal write-path purging lives in ModbusSerialTransport.WriteAsync).
+            // First read returns a valid ReadCoils request frame-start (RequestBytesToRead = 1).
+            // Second read returns 1 trailing byte.
+            var mock = new Mock<IStreamResource>(MockBehavior.Strict);
+            int callIndex = 0;
+            mock.Setup(s => s.ReadAsync(It.IsAny<Memory<byte>>(), It.IsAny<CancellationToken>()))
+                .Returns(async (Memory<byte> buf, CancellationToken ct) =>
+                {
+                    if (callIndex++ == 0)
+                    {
+                        new byte[] { 0x11, 0x01, 0x00, 0x13, 0x00, 0x25 }.AsSpan().CopyTo(buf.Span);
+                        return 7;
+                    }
+                    buf.Span[0] = 0x00;
+                    return 1;
+                });
+
+            var transport = new ModbusRtuTransport(mock.Object, new ModbusFactory(), NullModbusLogger.Instance);
+
+            using var cts = new CancellationTokenSource(50);
+            await transport.ReadRequestAsync(cts.Token);
+
+            mock.Verify(s => s.DiscardInBuffer(), Times.Never);
         }
     }
 }
