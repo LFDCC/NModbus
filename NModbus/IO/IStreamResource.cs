@@ -19,11 +19,15 @@ namespace NModbus.IO
         ///     Gets or sets the number of milliseconds before a timeout occurs when a read operation does not finish.
         /// </summary>
         /// <remarks>
-        ///     This is honored by the synchronous <see cref="Read"/> path on every adapter, and by the
-        ///     async path on TCP (<c>NetworkStream</c>) and UDP / raw <c>Socket</c>. For serial
-        ///     (<c>SerialPortAdapter</c> in <c>NModbus.Serial</c>) it is ignored on the async path —
-        ///     <see cref="ReadAsync(Memory{byte}, CancellationToken)"/> with a cancellation token is the
-        ///     reliable async timeout.
+        ///     Honored by the synchronous <see cref="Read"/> path on every adapter. On the async path the
+        ///     underlying framework APIs (<c>NetworkStream.ReadAsync</c>, <c>Socket.ReceiveAsync</c>,
+        ///     <c>SerialPort.BaseStream.ReadAsync</c>) ignore this property, so every built-in adapter enforces
+        ///     it explicitly via <see cref="StreamResourceTimeout"/> — a read that exceeds the timeout is
+        ///     aborted and surfaces the same exception the synchronous path would throw (an <c>IOException</c>/
+        ///     <c>SocketException</c> with <c>SocketError.TimedOut</c> for TCP/UDP, a <c>TimeoutException</c>
+        ///     for serial). A value &lt;= 0 or <see cref="InfiniteTimeout"/> disables the timeout. Passing a
+        ///     <see cref="CancellationToken"/> to <see cref="ReadAsync(Memory{byte}, CancellationToken)"/>
+        ///     remains an independent way to bound an async read.
         /// </remarks>
         int ReadTimeout { get; set; }
 
@@ -84,9 +88,10 @@ namespace NModbus.IO
         ///             in-flight read does not reliably abort the underlying overlapped read on Windows.
         ///             The slave's response bytes may still arrive in the serial FIFO. The
         ///             <c>ModbusRtuTransport</c> and <c>ModbusAsciiTransport</c> compensate by calling
-        ///             <see cref="DiscardInBuffer"/> on the cancellation path. Note that
-        ///             <c>SerialPort.ReadTimeout</c> is NOT honored on the async path — use
-        ///             <paramref name="cancellationToken"/> instead.</description>
+        ///             <see cref="DiscardInBuffer"/> on the cancellation path. <see cref="ReadTimeout"/> is
+        ///             honored on this async path via <see cref="StreamResourceTimeout"/> (surfacing a
+        ///             <c>TimeoutException</c>); <paramref name="cancellationToken"/> can still be used to
+        ///             impose a shorter, caller-controlled deadline.</description>
         ///         </item>
         ///     </list>
         /// </remarks>

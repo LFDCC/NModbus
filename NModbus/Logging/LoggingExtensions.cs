@@ -1,5 +1,6 @@
 ﻿using System;
 using NModbus.Extensions;
+using NModbus.Utility;
 
 namespace NModbus.Logging
 {
@@ -100,7 +101,7 @@ namespace NModbus.Logging
                 ? validPrefix
                 : invalidPrefix;
 
-            string hex = frame != null ? Convert.ToHexString(frame) : "<null>";
+            string hex = frame != null ? ModbusUtility.BytesToHex(frame) : "<null>";
             logger.Trace($"{prefix}: {hex}");
         }
 

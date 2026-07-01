@@ -192,7 +192,42 @@ namespace NModbus.Utility
                 throw new FormatException(Resources.HexCharacterCountNotEven);
             }
 
-            return Convert.FromHexString(hex);
+            // Polyfill for Convert.FromHexString (introduced in .NET 5, not available on netstandard2.1).
+            // Input is validated to be a clean (no whitespace, no prefix) even-length string by the checks above.
+            byte[] bytes = new byte[hex.Length >> 1];
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                bytes[i] = (byte)((HexCharToInt(hex[i * 2]) << 4) | HexCharToInt(hex[i * 2 + 1]));
+            }
+            return bytes;
+        }
+
+        private static int HexCharToInt(char c)
+        {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            throw new FormatException(Resources.HexCharacterCountNotEven);
+        }
+
+        /// <summary>
+        ///     Polyfill for <c>Convert.ToHexString</c> (introduced in .NET 5, not available on netstandard2.1).
+        ///     Returns the upper-case hex encoding of <paramref name="bytes"/> with no separators.
+        /// </summary>
+        public static string BytesToHex(byte[] bytes)
+        {
+            if (bytes == null)
+            {
+                throw new ArgumentNullException(nameof(bytes));
+            }
+
+            return string.Create(bytes.Length * 2, bytes, (span, state) =>
+            {
+                for (int i = 0; i < state.Length; i++)
+                {
+                    state[i].TryFormat(span.Slice(i * 2, 2), out _, "X2");
+                }
+            });
         }
 
         /// <summary>

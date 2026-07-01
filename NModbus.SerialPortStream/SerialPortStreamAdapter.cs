@@ -52,7 +52,13 @@ namespace NModbus.SerialPortStream
 
         public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            int result = await _serialPortStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            // Guard the async read with ReadTimeout: the underlying SerialPortStream.ReadAsync does not
+            // reliably observe ReadTimeout, so enforce it explicitly (matching the synchronous path).
+            int result = await StreamResourceTimeout.ReadWithTimeoutAsync(
+                ct => _serialPortStream.ReadAsync(buffer, ct),
+                _serialPortStream.ReadTimeout,
+                () => new TimeoutException("The serial read operation timed out."),
+                cancellationToken).ConfigureAwait(false);
 
             if (result == 0)
                 throw new TimeoutException();
@@ -62,7 +68,11 @@ namespace NModbus.SerialPortStream
 
         public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            await _serialPortStream.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+            await StreamResourceTimeout.WriteWithTimeoutAsync(
+                ct => _serialPortStream.WriteAsync(buffer, ct),
+                _serialPortStream.WriteTimeout,
+                () => new TimeoutException("The serial write operation timed out."),
+                cancellationToken).ConfigureAwait(false);
         }
 
         public void Dispose()

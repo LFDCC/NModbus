@@ -142,8 +142,12 @@ namespace NModbus.IO
         {
             if (_bufferOffset == 0)
             {
-                var result = await _udpClient.Client.ReceiveAsync(_buffer, SocketFlags.None, cancellationToken)
-                    .ConfigureAwait(false);
+                // Socket.ReceiveAsync ignores ReceiveTimeout (unlike the synchronous Receive), so enforce it here.
+                var result = await StreamResourceTimeout.ReadWithTimeoutAsync(
+                    ct => _udpClient.Client.ReceiveAsync(_buffer, SocketFlags.None, ct),
+                    _udpClient.Client.ReceiveTimeout,
+                    () => new SocketException((int)SocketError.TimedOut),
+                    cancellationToken).ConfigureAwait(false);
                 _bufferOffset = result;
             }
 
@@ -165,8 +169,12 @@ namespace NModbus.IO
 
         public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            await _udpClient.Client.SendAsync(buffer, SocketFlags.None, cancellationToken)
-                .ConfigureAwait(false);
+            // Socket.SendAsync ignores SendTimeout (unlike the synchronous Send), so enforce it here.
+            await StreamResourceTimeout.WriteWithTimeoutAsync(
+                async ct => await _udpClient.Client.SendAsync(buffer, SocketFlags.None, ct).ConfigureAwait(false),
+                _udpClient.Client.SendTimeout,
+                () => new SocketException((int)SocketError.TimedOut),
+                cancellationToken).ConfigureAwait(false);
         }
 
         public void Dispose()

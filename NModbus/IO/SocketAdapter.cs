@@ -50,14 +50,24 @@ namespace NModbus.IO
 
         public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            return await _socketClient.ReceiveAsync(buffer, SocketFlags.None, cancellationToken)
-                .ConfigureAwait(false);
+            // Socket.ReceiveAsync ignores ReceiveTimeout (unlike the synchronous Receive), so enforce it here.
+            // Use the connection-preserving variant: cancelling an in-flight socket read tears the socket down
+            // on some runtimes, which would break the transport's retry loop.
+            return await StreamResourceTimeout.ReadWithTimeoutPreservingConnectionAsync(
+                ct => _socketClient.ReceiveAsync(buffer, SocketFlags.None, ct),
+                _socketClient.ReceiveTimeout,
+                () => new SocketException((int)SocketError.TimedOut),
+                cancellationToken).ConfigureAwait(false);
         }
 
         public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            await _socketClient.SendAsync(buffer, SocketFlags.None, cancellationToken)
-                .ConfigureAwait(false);
+            // Socket.SendAsync ignores SendTimeout (unlike the synchronous Send), so enforce it here.
+            await StreamResourceTimeout.WriteWithTimeoutPreservingConnectionAsync(
+                async ct => await _socketClient.SendAsync(buffer, SocketFlags.None, ct).ConfigureAwait(false),
+                _socketClient.SendTimeout,
+                () => new SocketException((int)SocketError.TimedOut),
+                cancellationToken).ConfigureAwait(false);
         }
 
         public void Dispose()

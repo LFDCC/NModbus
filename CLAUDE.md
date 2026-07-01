@@ -23,12 +23,12 @@ CI runs on `windows-latest` and requires .NET 6.0.x and 7.0.x SDKs. The unit tes
 
 | Project | Purpose | Targets |
 |---|---|---|
-| `NModbus/` | Core library — protocol, transports, devices, data stores | net46, netstandard1.3, netstandard2.0, net6.0 |
-| `NModbus.Serial/` | Serial port adapter via `System.IO.Ports` | net46, netstandard2.0, net6.0 |
-| `NModbus.SerialPortStream/` | Legacy SerialPortStream adapter | net46, netstandard1.5 |
-| `NModbus.UnitTests/` | Unit tests (xUnit + Moq) | net4.6 |
-| `NModbus.IntegrationTests/` | Integration tests (xUnit + Shouldly) | net4.6, net6.0 |
-| `Samples/` | Sample console application | net46 |
+| `NModbus/` | Core library — protocol, transports, devices, data stores | netstandard2.1 |
+| `NModbus.Serial/` | Serial port adapter via `System.IO.Ports` | netstandard2.1 |
+| `NModbus.SerialPortStream/` | Legacy SerialPortStream adapter | netstandard2.1 |
+| `NModbus.UnitTests/` | Unit tests (xUnit + Moq) | net6.0 |
+| `NModbus.IntegrationTests/` | Integration tests (xUnit + Shouldly) | net6.0 |
+| `Samples/` | Sample console application | net6.0 |
 
 ## Architecture
 

@@ -57,14 +57,30 @@ namespace NModbus.Serial
 
         public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            // SerialPort.BaseStream returns a Stream that supports ReadAsync
-            return await _serialPort.BaseStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            // SerialPort.BaseStream.ReadAsync ignores SerialPort.ReadTimeout (unlike the synchronous Read),
+            // so enforce it here to match the synchronous path's TimeoutException behavior.
+            //
+            // On timeout this throws TimeoutException (not OperationCanceledException), so the RTU/ASCII
+            // transport's OCE-driven DiscardInBuffer does NOT run for a timeout. That is intentional and safe:
+            // ModbusSerialTransport.WriteAsync purges the FIFO at the start of the next request, so any bytes
+            // the slave stranded mid-response are cleared before the retry. A genuine caller cancellation still
+            // surfaces as OperationCanceledException and still triggers the transport's DiscardInBuffer.
+            return await StreamResourceTimeout.ReadWithTimeoutAsync(
+                ct => _serialPort.BaseStream.ReadAsync(buffer, ct),
+                _serialPort.ReadTimeout,
+                () => new TimeoutException("The serial read operation timed out."),
+                cancellationToken).ConfigureAwait(false);
         }
 
         public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            // SerialPort.BaseStream returns a Stream that supports WriteAsync
-            await _serialPort.BaseStream.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+            // SerialPort.BaseStream.WriteAsync ignores SerialPort.WriteTimeout (unlike the synchronous Write),
+            // so enforce it here to match the synchronous path's TimeoutException behavior.
+            await StreamResourceTimeout.WriteWithTimeoutAsync(
+                ct => _serialPort.BaseStream.WriteAsync(buffer, ct),
+                _serialPort.WriteTimeout,
+                () => new TimeoutException("The serial write operation timed out."),
+                cancellationToken).ConfigureAwait(false);
         }
 
         public void Dispose()

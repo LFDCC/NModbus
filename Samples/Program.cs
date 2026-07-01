@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+
 using NModbus;
 using NModbus.Extensions.Enron;
 using NModbus.Serial;
@@ -11,8 +12,12 @@ using NModbus.Utility;
 
 namespace Samples
 {
+    using System.IO;
     using System.Linq;
+    using System.Net.Http;
     using System.Runtime.CompilerServices;
+
+    using NModbus.Device;
     using NModbus.Logging;
 
     /// <summary>
@@ -34,13 +39,16 @@ namespace Samples
                 //ModbusSocketSerialMasterReadRegisters();
                 //ModbusSocketSerialMasterWriteRegisters();
                 //ModbusSocketSerialMasterReadRegisters();
-                await Task.Run(() => { });
-				        //ModbusTcpMasterReadInputs();
-				        //SimplePerfTest();
-				        //ModbusSerialRtuMasterWriteRegisters();
-				        //ModbusSerialAsciiMasterReadRegisters();
-				        //ModbusTcpMasterReadInputs();
-								ModbusTcpMasterReadHoldingRegisters32();
+                await Task.Run(async () =>
+                {
+                    await Test1();
+                });
+                //ModbusTcpMasterReadInputs();
+                //SimplePerfTest();
+                //ModbusSerialRtuMasterWriteRegisters();
+                //ModbusSerialAsciiMasterReadRegisters();
+                //ModbusTcpMasterReadInputs();
+                //ModbusTcpMasterReadHoldingRegisters32();
                 //StartModbusAsciiSlave();
                 //ModbusTcpMasterReadInputsFromModbusSlave();
                 //ModbusSerialAsciiMasterReadRegistersFromModbusSlave();
@@ -61,6 +69,46 @@ namespace Samples
             Console.ReadKey();
 
             return 0;
+        }
+
+        public static async Task Test1()
+        {
+            try
+            {
+                ModbusFactory modbusFactory = new();
+                IModbusMaster modbusMaster;
+                var timeout = 2000;
+                var tcpClient = new TcpClient();
+                using var cts = new CancellationTokenSource(timeout);
+                await tcpClient.ConnectAsync("127.0.0.1", 502, cts.Token);
+
+                modbusMaster = modbusFactory.CreateMaster(tcpClient);
+                modbusMaster.Transport.Retries = 1;
+                modbusMaster.Transport.ReadTimeout = 2000;
+                modbusMaster.Transport.WriteTimeout = 2000;
+                using var cts1 = new CancellationTokenSource(100);
+                var data = await modbusMaster.ReadHoldingRegistersAsync(2, 100, 100);
+            }
+            catch (IOException e)
+            {
+                if (e.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut })
+                {
+                    Console.WriteLine($"error:{e.Message}");
+                }
+                else
+                {
+                    Console.WriteLine($"error:{e.Message}");
+                }
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"error:{e.Message}");
+                throw;
+            }
         }
 
         /// <summary>
@@ -302,20 +350,20 @@ namespace Samples
                 IModbusMaster master = factory.CreateMaster(client);
 
 
-								byte slaveId = 1;
-								ushort startAddress = 7165;
+                byte slaveId = 1;
+                ushort startAddress = 7165;
                 ushort numInputs = 5;
-								UInt32 www = 0x42c80083;
+                UInt32 www = 0x42c80083;
 
-								master.WriteSingleRegister32(slaveId, startAddress, www);
-								uint[] registers = master.ReadHoldingRegisters32(slaveId, startAddress, numInputs);
+                master.WriteSingleRegister32(slaveId, startAddress, www);
+                uint[] registers = master.ReadHoldingRegisters32(slaveId, startAddress, numInputs);
 
-				        for (int i = 0; i < numInputs; i++)
-				        {
-									Console.WriteLine($"Input {(startAddress + i)}={registers[i]}");
-				        }
-						}
-				}
+                for (int i = 0; i < numInputs; i++)
+                {
+                    Console.WriteLine($"Input {(startAddress + i)}={registers[i]}");
+                }
+            }
+        }
 
         /// <summary>
         ///     Simple Modbus UDP master write coils example.
@@ -473,7 +521,7 @@ namespace Samples
                 byte registerCountMSB = frameStart[4];
                 byte registerCountLSB = frameStart[5];
 
-                int numberOfRegisters = ( registerCountMSB << 8) + registerCountLSB;
+                int numberOfRegisters = (registerCountMSB << 8) + registerCountLSB;
 
                 Console.WriteLine($"Got Hmi Buffer Request for {numberOfRegisters} registers.");
 
@@ -487,7 +535,7 @@ namespace Samples
         }
 
 
-        
+
         /// <summary>
         /// Simple Modbus serial RTU slave example.
         /// </summary>

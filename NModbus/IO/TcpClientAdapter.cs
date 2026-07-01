@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,12 +53,26 @@ namespace NModbus.IO
 
         public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            return await _tcpClient.GetStream().ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            // NetworkStream.ReadAsync ignores ReadTimeout (unlike the synchronous Read), so enforce it here.
+            // Use the connection-preserving variant: cancelling an in-flight socket read tears the socket down
+            // on some runtimes, which would break the transport's retry loop.
+            var stream = _tcpClient.GetStream();
+            return await StreamResourceTimeout.ReadWithTimeoutPreservingConnectionAsync(
+                ct => stream.ReadAsync(buffer, ct),
+                stream.ReadTimeout,
+                () => new IOException("The read operation timed out.", new SocketException((int)SocketError.TimedOut)),
+                cancellationToken).ConfigureAwait(false);
         }
 
         public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            await _tcpClient.GetStream().WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+            // NetworkStream.WriteAsync ignores WriteTimeout (unlike the synchronous Write), so enforce it here.
+            var stream = _tcpClient.GetStream();
+            await StreamResourceTimeout.WriteWithTimeoutPreservingConnectionAsync(
+                ct => stream.WriteAsync(buffer, ct),
+                stream.WriteTimeout,
+                () => new IOException("The write operation timed out.", new SocketException((int)SocketError.TimedOut)),
+                cancellationToken).ConfigureAwait(false);
         }
 
         public void Dispose()

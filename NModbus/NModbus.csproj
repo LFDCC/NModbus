@@ -3,7 +3,7 @@
 		<Description>NModbus is a C# implementation of the Modbus protocol. Provides connectivity to Modbus slave compatible devices and applications. Supports TCP, and UDP protocols.</Description>
 		<VersionPrefix>3.0.84</VersionPrefix>
 		<Authors>Dmitry Turin, Rich Quackenbush, Jesse Beard</Authors>
-		<TargetFramework>net6.0</TargetFramework>
+		<TargetFramework>netstandard2.1</TargetFramework>
 		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 		<AssemblyName>NModbus</AssemblyName>
 		<PackageId>LFDCC.NModbus</PackageId>
