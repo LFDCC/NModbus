@@ -54,25 +54,52 @@ namespace NModbus.IO
         public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             // NetworkStream.ReadAsync ignores ReadTimeout (unlike the synchronous Read), so enforce it here.
-            // Use the connection-preserving variant: cancelling an in-flight socket read tears the socket down
-            // on some runtimes, which would break the transport's retry loop.
+            //
+            // We use cancel-based timeout and FORCE-CLOSE the underlying TcpClient on timeout. The
+            // alternative (preserving connection) leaves the in-flight socket read running, which:
+            //   1) causes the next request's response to be delivered to the orphaned read instead of
+            //      the new one (a race that broke sequential operations against the same socket);
+            //   2) serializes the next ReadAsync behind the orphan on .NET 6, since NetworkStream does
+            //      not reliably honor cancellation to actually abort the underlying receive.
+            // Forcing the socket closed makes the next operation on this transport fail immediately
+            // with ObjectDisposedException rather than hanging behind a dead read. The caller is
+            // expected to create a new master after such a failure.
             var stream = _tcpClient.GetStream();
-            return await StreamResourceTimeout.ReadWithTimeoutPreservingConnectionAsync(
-                ct => stream.ReadAsync(buffer, ct),
-                stream.ReadTimeout,
-                () => new IOException("The read operation timed out.", new SocketException((int)SocketError.TimedOut)),
-                cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await StreamResourceTimeout.ReadWithTimeoutAsync(
+                    ct => stream.ReadAsync(buffer, ct),
+                    stream.ReadTimeout,
+                    () => new IOException("The read operation timed out.", new SocketException((int)SocketError.TimedOut)),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (IOException ex) when (ex.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut })
+            {
+                // The socket is in an indeterminate state (orphan read may still be pending). Close it
+                // so the next operation fails fast rather than hanging behind the dead read.
+                try { _tcpClient.Close(); } catch { /* best effort */ }
+                throw;
+            }
         }
 
         public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             // NetworkStream.WriteAsync ignores WriteTimeout (unlike the synchronous Write), so enforce it here.
+            // Same rationale as ReadAsync — force-close the socket on write timeout.
             var stream = _tcpClient.GetStream();
-            await StreamResourceTimeout.WriteWithTimeoutPreservingConnectionAsync(
-                ct => stream.WriteAsync(buffer, ct),
-                stream.WriteTimeout,
-                () => new IOException("The write operation timed out.", new SocketException((int)SocketError.TimedOut)),
-                cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await StreamResourceTimeout.WriteWithTimeoutAsync(
+                    ct => stream.WriteAsync(buffer, ct),
+                    stream.WriteTimeout,
+                    () => new IOException("The write operation timed out.", new SocketException((int)SocketError.TimedOut)),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (IOException ex) when (ex.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut })
+            {
+                try { _tcpClient.Close(); } catch { /* best effort */ }
+                throw;
+            }
         }
 
         public void Dispose()

@@ -18,23 +18,24 @@ namespace Modbus.IntegrationTests
     ///         did; the async path used to hang until the OS TCP stack gave up — tens of seconds);</description></item>
     ///         <item><description>it surfaces the same timeout-shaped exception as the sync path
     ///         (<c>IOException</c> with an inner <c>SocketException</c> whose code is <c>TimedOut</c>);</description></item>
-    ///         <item><description>enforcing the timeout does NOT tear the socket down, so
-    ///         <c>Transport.Retries</c> keeps working — a regression that previously surfaced as
-    ///         "The operation is not allowed on non-connected sockets" on the second attempt.</description></item>
+    ///         <item><description>on timeout, the underlying <c>TcpClient</c> is FORCE-CLOSED. This is
+    ///         necessary because <c>NetworkStream.ReadAsync</c> on .NET 6 does not reliably honor
+    ///         cancellation to actually abort the in-flight receive — leaving it pending serializes
+    ///         the next read behind the dead one, and the next request's response can be delivered
+    ///         to the orphaned read instead of the new one. The trade-off is that
+    ///         <c>Transport.Retries</c> cannot reuse the same socket after a timeout; the caller
+    ///         must reconnect.</description></item>
     ///     </list>
     /// </summary>
     public class TcpAsyncTimeoutTests
     {
         private static readonly IModbusFactory Factory = new ModbusFactory();
 
-        [Theory]
-        [InlineData(0)]
-        [InlineData(1)]
-        [InlineData(2)]
-        public async Task ReadHoldingRegistersAsync_SlaveNeverResponds_ThrowsTimeout_AndRetriesStayConnected(int retries)
+        [Fact]
+        public async Task ReadHoldingRegistersAsync_SlaveNeverResponds_ThrowsTimeout()
         {
             using var server = new SilentTcpServer();
-            using var master = CreateMaster(server.Port, retries);
+            using var master = CreateMaster(server.Port, retries: 0);
 
             var exception = await Should.ThrowAsync<IOException>(
                 () => master.ReadHoldingRegistersAsync(1, 0, 1));
@@ -42,10 +43,28 @@ namespace Modbus.IntegrationTests
             // Same shape as a synchronous NetworkStream read timeout.
             var inner = exception.InnerException.ShouldBeOfType<SocketException>();
             inner.SocketErrorCode.ShouldBe(SocketError.TimedOut);
+        }
 
-            // Regression guard: the timeout must not close the socket, otherwise the retry's write failed
-            // with "The operation is not allowed on non-connected sockets".
-            exception.ToString().ShouldNotContain("non-connected", Case.Insensitive);
+        [Fact]
+        public async Task ReadHoldingRegistersAsync_AfterTimeout_SocketIsClosed_NotHung()
+        {
+            // Regression guard for the orphaned-read race: prior to the force-close fix, the orphaned
+            // in-flight read on timeout serialized subsequent reads on the same socket, so the next
+            // request would also time out (and may even pick up bytes destined for the previous orphan).
+            // After the fix, the socket is closed on timeout so the next operation fails immediately
+            // with ObjectDisposedException, not by hanging behind a dead read.
+            using var server = new SilentTcpServer();
+            using var master = CreateMaster(server.Port, retries: 0);
+
+            await Should.ThrowAsync<IOException>(() => master.ReadHoldingRegistersAsync(1, 0, 1));
+
+            // Second call must fail FAST (not hang for the timeout period) because the socket is closed.
+            var stopwatch = Stopwatch.StartNew();
+            await Should.ThrowAsync<ObjectDisposedException>(
+                () => master.ReadHoldingRegistersAsync(2, 0, 1));
+            stopwatch.Stop();
+
+            stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(1));
         }
 
         [Fact]
