@@ -69,7 +69,7 @@ namespace NModbus.IO
             // an unavoidable intermediate on the sync path because StreamResourceUtility.ReadLine is
             // built around a string; the Span overload on HexToBytes only helps the async path.
             byte[] frame = ModbusUtility.HexToBytes(frameHex);
-            Logger.Trace($"RX: {string.Join(", ", frame)}");
+            Logger.Trace(() => $"RX: {string.Join(", ", frame)}");
 
             if (frame.Length < 3)
             {
@@ -100,7 +100,7 @@ namespace NModbus.IO
             // ReadLineAsync now returns the decoded bytes directly (it handles ':' stripping and
             // hex decoding internally using pooled buffers).
             byte[] frame = await ReadLineAsync(cancellationToken).ConfigureAwait(false);
-            Logger.Trace($"RX: {string.Join(", ", frame)}");
+            Logger.Trace(() => $"RX: {string.Join(", ", frame)}");
 
             if (frame.Length < 3)
             {

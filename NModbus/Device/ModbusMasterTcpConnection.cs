@@ -167,7 +167,7 @@ namespace NModbus.Device
 
                        // write response
                        byte[] responseFrame = Transport.BuildMessageFrame(response);
-                       Logger.Information($"TX to Master at {EndPoint}: {string.Join(", ", responseFrame)}");
+                       Logger.Information(() => $"TX to Master at {EndPoint}: {string.Join(", ", responseFrame)}");
                        await Stream.WriteAsync(responseFrame, 0, responseFrame.Length, disposeToken).ConfigureAwait(false);
                    }
                }
