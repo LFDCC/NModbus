@@ -45,6 +45,17 @@ namespace NModbus.Message
             }
 
             ByteCount = frame[2];
+
+            // Per Modbus spec, register data is always an even number of bytes
+            // (2 per 16-bit register). A non-compliant device or wire corruption
+            // can produce an odd value, which would fail downstream in
+            // NetworkBytesToHostUInt16 with a cryptic message. Fail early with context.
+            if ((ByteCount & 1) != 0)
+            {
+                throw new FormatException(
+                    $"ByteCount {ByteCount} in ReadHoldingInputRegisters response is not even (function code 0x{FunctionCode:X2}). Possible corrupt response or non-compliant device.");
+            }
+
             Data = new RegisterCollection(frame.Slice(3, ByteCount).ToArray());
         }
     }

@@ -85,6 +85,15 @@ namespace NModbus.Message
             StartAddress = ReadUInt16BigEndian(frame, 2);
             NumberOfPoints = ReadUInt16BigEndian(frame, 4);
             ByteCount = frame[6];
+
+            // Guard against corrupt wire data: register data is always 2 bytes per
+            // 16-bit register, so the byte count must be even.
+            if ((ByteCount & 1) != 0)
+            {
+                throw new FormatException(
+                    $"ByteCount {ByteCount} in WriteMultipleRegisters request is not even. Possible corrupt frame.");
+            }
+
             Data = new RegisterCollection(frame.Slice(7, ByteCount).ToArray());
         }
     }
