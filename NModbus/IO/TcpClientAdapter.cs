@@ -53,47 +53,25 @@ namespace NModbus.IO
 
         public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            // Use the underlying Socket directly, not NetworkStream. The async APIs of NetworkStream
-            // ignore the timeout property and on timeout they don't actually cancel the in-flight
-            // receive synchronously — even on .NET 7+ — so a follow-up read sees the previous one as
-            // "in progress" and throws InvalidOperationException. The Socket API is the underlying
-            // primitive NetworkStream wraps; using it directly gives clean cancellation semantics and
-            // allows back-to-back reads after a timeout, which is what the canonical "one TCP
-            // connection to a Modbus gateway that proxies multiple slaves" use case needs.
-            //
-            // ReadTimeout enforcement: the Socket's ReceiveTimeout is NOT observed by ReceiveAsync
-            // either, so we apply a linked-token timeout. If the timeout is infinite (0 / -1), the
-            // caller's own cancellation token is the only deadline — in that case we don't wrap and
-            // OCE propagates as OCE (no spurious "timed out" exception).
+            // Use the underlying Socket directly, not NetworkStream. NetworkStream.ReadAsync does
+            // not reliably cancel synchronously even on .NET 7+, so a follow-up read sees the
+            // previous one as "in progress" and throws InvalidOperationException. The Socket API
+            // gives clean cancellation for per-request error isolation.
             var socket = _tcpClient.Client;
-            int receiveTimeout = socket.ReceiveTimeout;
+            var onTimeout = new Func<Exception>(
+                () => new IOException("The read operation timed out.", new SocketException((int)SocketError.TimedOut)));
 
             int total = 0;
             while (total < buffer.Length)
             {
-                int read;
-                if (IsInfinite(receiveTimeout))
-                {
-                    read = await socket.ReceiveAsync(buffer.Slice(total), SocketFlags.None, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    using var timeoutCts = new CancellationTokenSource(receiveTimeout);
-                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-                    try
-                    {
-                        read = await socket.ReceiveAsync(buffer.Slice(total), SocketFlags.None, linkedCts.Token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                    {
-                        throw new IOException("The read operation timed out.", new SocketException((int)SocketError.TimedOut));
-                    }
-                }
+                int read = await StreamResourceTimeout.ReadWithTimeoutAsync(
+                    ct => socket.ReceiveAsync(buffer.Slice(total), SocketFlags.None, ct),
+                    socket.ReceiveTimeout,
+                    onTimeout,
+                    cancellationToken).ConfigureAwait(false);
 
                 if (read == 0)
-                {
                     throw new IOException("Read resulted in 0 bytes returned.");
-                }
 
                 total += read;
             }
@@ -104,29 +82,12 @@ namespace NModbus.IO
         public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             var socket = _tcpClient.Client;
-            int sendTimeout = socket.SendTimeout;
-
-            if (IsInfinite(sendTimeout))
-            {
-                await socket.SendAsync(buffer, SocketFlags.None, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            using var timeoutCts = new CancellationTokenSource(sendTimeout);
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-            try
-            {
-                await socket.SendAsync(buffer, SocketFlags.None, linkedCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-            {
-                throw new IOException("The write operation timed out.", new SocketException((int)SocketError.TimedOut));
-            }
+            await StreamResourceTimeout.WriteWithTimeoutAsync(
+                async ct => await socket.SendAsync(buffer, SocketFlags.None, ct).ConfigureAwait(false),
+                socket.SendTimeout,
+                () => new IOException("The write operation timed out.", new SocketException((int)SocketError.TimedOut)),
+                cancellationToken).ConfigureAwait(false);
         }
-
-        private static bool IsInfinite(int timeoutMilliseconds)
-            => timeoutMilliseconds <= 0 || timeoutMilliseconds == Timeout.Infinite;
 
         public void Dispose()
         {
