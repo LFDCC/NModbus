@@ -54,26 +54,12 @@ namespace NModbus.Device
                     (byte) (Modbus.ExceptionOffset + request.FunctionCode),
                     ex.ExceptionCode);
             }
-#if NET45 || NET46
-            catch (Exception ex)
-            {
-                //Okay - this is no beuno.
-                response = new SlaveExceptionResponse(request.SlaveAddress,
-                    (byte) (Modbus.ExceptionOffset + request.FunctionCode),
-                    SlaveExceptionCodes.SlaveDeviceFailure);
-
-                //Give the consumer a chance at seeing what the *(&& happened.
-                Trace.WriteLine(ex.ToString());
-            }
-#else
             catch (Exception)
             {
-                //Okay - this is no beuno.
                 response = new SlaveExceptionResponse(request.SlaveAddress,
                     (byte)(Modbus.ExceptionOffset + request.FunctionCode),
                     SlaveExceptionCodes.SlaveDeviceFailure);
             }
-#endif
 
 
             return response;

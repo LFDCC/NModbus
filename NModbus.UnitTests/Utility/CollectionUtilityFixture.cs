@@ -4,7 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using NModbus.Data;
 using NModbus.UnitTests.Message;
-using NModbus.Unme.Common;
+using NModbus.Extensions;
 using Xunit;
 
 namespace NModbus.UnitTests.Utility

@@ -10,25 +10,18 @@ using NModbus.Logging;
 
 namespace NModbus.Device
 {
-#if TIMER
-    using System.Timers;
-#endif
 
     /// <summary>
     ///     Modbus TCP slave device.
     /// </summary>
     public class ModbusTcpSlaveNetwork : ModbusSlaveNetwork, IModbusTcpSlaveNetwork
     {
-        private const int TimeWaitResponse = 1000;
         private readonly object _serverLock = new object();
 
         private readonly ConcurrentDictionary<string, ModbusMasterTcpConnection> _masters =
             new ConcurrentDictionary<string, ModbusMasterTcpConnection>();
 
         private TcpListener _server;
-#if TIMER
-        private Timer _timer;
-#endif
         public ModbusTcpSlaveNetwork(TcpListener tcpListener, IModbusFactory modbusFactory,  IModbusLogger logger)
             : base(new EmptyTransport(modbusFactory), modbusFactory, logger)
         {
@@ -40,21 +33,6 @@ namespace NModbus.Device
             _server = tcpListener;
         }
 
-#if TIMER
-        private ModbusTcpSlave(byte unitId, TcpListener tcpListener, double timeInterval)
-            : base(unitId, new EmptyTransport())
-        {
-            if (tcpListener == null)
-            {
-                throw new ArgumentNullException(nameof(tcpListener));
-            }
-
-            _server = tcpListener;
-            _timer = new Timer(timeInterval);
-            _timer.Elapsed += OnTimer;
-            _timer.Enabled = true;
-        }
-#endif
 
         /// <summary>
         ///     Gets the Modbus TCP Masters connected to this Modbus TCP Slave.
@@ -95,16 +73,6 @@ namespace NModbus.Device
         //    return new ModbusTcpSlave(unitId, tcpListener);
         //}
 
-#if TIMER
-        /// <summary>
-        ///     Creates ModbusTcpSlave with timer which polls connected clients every
-        ///     <paramref name="pollInterval"/> milliseconds on that they are connected.
-        /// </summary>
-        public static ModbusTcpSlave CreateTcp(byte unitId, TcpListener tcpListener, double pollInterval)
-        {
-            return new ModbusTcpSlave(unitId, tcpListener, pollInterval);
-        }
-#endif
 
         /// <summary>
         ///     Start slave listening for requests.
@@ -169,13 +137,6 @@ namespace NModbus.Device
                             _server.Stop();
                             _server = null;
 
-#if TIMER
-                            if (_timer != null)
-                            {
-                                _timer.Dispose();
-                                _timer = null;
-                            }
-#endif
 
                             foreach (var key in _masters.Keys)
                             {
@@ -193,25 +154,6 @@ namespace NModbus.Device
             }
         }
 
-        private static bool IsSocketConnected(Socket socket)
-        {
-            bool poll = socket.Poll(TimeWaitResponse, SelectMode.SelectRead);
-            bool available = (socket.Available == 0);
-            return poll && available;
-        }
-
-#if TIMER
-        private void OnTimer(object sender, ElapsedEventArgs e)
-        {
-            foreach (var master in _masters.ToList())
-            {
-                if (IsSocketConnected(master.Value.TcpClient.Client) == false)
-                {
-                    master.Value.Dispose();
-                }
-            }
-        }
-#endif
         private void OnMasterConnectionClosedHandler(object sender, TcpConnectionEventArgs e)
         {
             // The connection may raise the closed event from both its handler loop and its

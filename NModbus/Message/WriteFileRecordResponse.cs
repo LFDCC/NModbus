@@ -1,5 +1,5 @@
 ﻿using NModbus.Data;
-using NModbus.Unme.Common;
+using NModbus;
 using System;
 using System.Linq;
 using System.Net;

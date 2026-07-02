@@ -6,7 +6,6 @@
 //using NModbus.Device;
 //using NModbus.Message;
 //using NModbus.UnitTests.Message;
-//using NModbus.Unme.Common;
 //using Xunit;
 
 //namespace NModbus.UnitTests.Device

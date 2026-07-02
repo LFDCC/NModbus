@@ -7,7 +7,6 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using NModbus.Logging;
-using NModbus.Unme.Common;
 
 namespace NModbus.IO
 {

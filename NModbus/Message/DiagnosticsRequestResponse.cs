@@ -4,7 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using NModbus.Data;
-using NModbus.Unme.Common;
+using NModbus.Extensions;
 
 namespace NModbus.Message
 {
