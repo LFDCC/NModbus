@@ -2,11 +2,11 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using NModbus.Logging;
+using NModbus.Message;
 
 namespace NModbus.IO
 {
@@ -97,14 +97,14 @@ namespace NModbus.IO
         public IModbusMessage CreateMessageAndInitializeTransactionId<T>(byte[] fullFrame)
             where T : IModbusMessage, new()
         {
-            byte[] mbapHeader = new byte[6];
-            byte[] messageFrame = new byte[fullFrame.Length - 6];
-            Array.Copy(fullFrame, 0, mbapHeader, 0, 6);
-            Array.Copy(fullFrame, 6, messageFrame, 0, fullFrame.Length - 6);
-
-            IModbusMessage response = CreateResponse<T>(messageFrame);
-            response.TransactionId = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(0));
-
+            // Avoid the two redundant allocations + two Array.Copy calls: the combined
+            // frame already contains both the MBAP header and the PDU. Read the transaction
+            // id directly from the header bytes and pass the PDU slice into CreateResponse
+            // as a span — one allocation remains (the .ToArray() inside the optimized path)
+            // instead of two.
+            ushort txId = BinaryPrimitives.ReadUInt16BigEndian(fullFrame.AsSpan(0));
+            IModbusMessage response = ModbusMessageFactory.CreateModbusMessage<T>(fullFrame.AsSpan(6).ToArray());
+            response.TransactionId = txId;
             return response;
         }
 
