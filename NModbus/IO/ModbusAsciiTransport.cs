@@ -2,7 +2,6 @@
 using System.Buffers;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using NModbus.Logging;
@@ -32,15 +31,18 @@ namespace NModbus.IO
 
             var msgFrameAscii = ModbusUtility.GetAsciiBytes(msgFrame);
             var lrcAscii = ModbusUtility.GetAsciiBytes(ModbusUtility.CalculateLrc(msgFrame));
-            var nlAscii = Encoding.UTF8.GetBytes(Modbus.NewLine.ToCharArray());
 
-            var frame = new MemoryStream(1 + msgFrameAscii.Length + lrcAscii.Length + nlAscii.Length);
-            frame.WriteByte((byte)':');
-            frame.Write(msgFrameAscii, 0, msgFrameAscii.Length);
-            frame.Write(lrcAscii, 0, lrcAscii.Length);
-            frame.Write(nlAscii, 0, nlAscii.Length);
-
-            return frame.ToArray();
+            // 1 (':') + msgFrameAscii.Length + lrcAscii.Length + 2 ("\r\n").
+            // Single allocation + three Span.CopyTo replaces the prior MemoryStream + ToArray()
+            // (which was 4 fresh byte[] per call and a 2-pass internal copy).
+            int totalLen = 1 + msgFrameAscii.Length + lrcAscii.Length + 2;
+            var frame = new byte[totalLen];
+            frame[0] = (byte)':';
+            msgFrameAscii.AsSpan().CopyTo(frame.AsSpan(1));
+            lrcAscii.AsSpan().CopyTo(frame.AsSpan(1 + msgFrameAscii.Length));
+            frame[totalLen - 2] = (byte)'\r';
+            frame[totalLen - 1] = (byte)'\n';
+            return frame;
         }
 
         public override bool ChecksumsMatch(IModbusMessage message, byte[] messageFrame)
