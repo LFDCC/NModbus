@@ -51,7 +51,7 @@ namespace NModbus.Device
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"Error applying request to slave {slave.UnitId}: {ex.Message}");
+                        Logger?.Error($"Error applying request to slave {slave.UnitId}: {ex.Message}");
                     }
                 }
             }
@@ -63,7 +63,7 @@ namespace NModbus.Device
                 // only service requests addressed to our slaves
                 if (slave == null)
                 {
-                    Logger.Warning($"NModbus Slave Network ignoring request intended for NModbus Slave {request.SlaveAddress}");
+                    Logger?.Warning($"NModbus Slave Network ignoring request intended for NModbus Slave {request.SlaveAddress}");
                 }
                 else
                 {
@@ -81,14 +81,14 @@ namespace NModbus.Device
 
             _slaves.Add(slave.UnitId, slave);
 
-            Logger.Information($"Slave {slave.UnitId} added to slave network.");
+            Logger?.Information($"Slave {slave.UnitId} added to slave network.");
         }
 
         public void RemoveSlave(byte unitId)
         {
             _slaves.Remove(unitId);
 
-            Logger.Information($"Slave {unitId} removed from slave network.");
+            Logger?.Information($"Slave {unitId} removed from slave network.");
         }
 
         public IModbusSlave GetSlave(byte unitId)
