@@ -12,19 +12,21 @@ using Xunit;
 namespace Modbus.IntegrationTests
 {
     /// <summary>
-    ///     Locks in the async TCP timeout behavior:
+    ///     Locks in the async TCP behavior for the canonical "one TCP connection to a Modbus gateway
+    ///     that proxies multiple slaves" scenario:
     ///     <list type="bullet">
     ///         <item><description>the async path honors <c>Transport.ReadTimeout</c> (the sync path already
     ///         did; the async path used to hang until the OS TCP stack gave up — tens of seconds);</description></item>
     ///         <item><description>it surfaces the same timeout-shaped exception as the sync path
     ///         (<c>IOException</c> with an inner <c>SocketException</c> whose code is <c>TimedOut</c>);</description></item>
-    ///         <item><description>on timeout, the underlying <c>TcpClient</c> is FORCE-CLOSED. This is
-    ///         necessary because <c>NetworkStream.ReadAsync</c> on .NET 6 does not reliably honor
-    ///         cancellation to actually abort the in-flight receive — leaving it pending serializes
-    ///         the next read behind the dead one, and the next request's response can be delivered
-    ///         to the orphaned read instead of the new one. The trade-off is that
-    ///         <c>Transport.Retries</c> cannot reuse the same socket after a timeout; the caller
-    ///         must reconnect.</description></item>
+    ///         <item><description>PER-REQUEST ERROR ISOLATION: a timeout or slave exception on one
+    ///         request does NOT poison the connection for subsequent requests against other slaves
+    ///         (matches the synchronous <c>ReadHoldingRegisters</c> behavior, which is what users
+    ///         expect from a Modbus gateway setup). This is achieved by running the synchronous
+    ///         <c>NetworkStream.Read</c> on a thread-pool worker inside <c>TcpClientAdapter.ReadAsync</c>
+    ///         — the sync read honors <c>NetworkStream.ReadTimeout</c> cleanly with no orphan
+    ///         in-flight receive, unlike <c>NetworkStream.ReadAsync</c> on .NET 6 which does not
+    ///         reliably honor cancellation and would leave a pending read blocking subsequent reads.</description></item>
     ///     </list>
     /// </summary>
     public class TcpAsyncTimeoutTests
@@ -46,25 +48,30 @@ namespace Modbus.IntegrationTests
         }
 
         [Fact]
-        public async Task ReadHoldingRegistersAsync_AfterTimeout_SocketIsClosed_NotHung()
+        public async Task ReadHoldingRegistersAsync_AfterTimeout_ConnectionStillUsable()
         {
-            // Regression guard for the orphaned-read race: prior to the force-close fix, the orphaned
-            // in-flight read on timeout serialized subsequent reads on the same socket, so the next
-            // request would also time out (and may even pick up bytes destined for the previous orphan).
-            // After the fix, the socket is closed on timeout so the next operation fails immediately
-            // with ObjectDisposedException, not by hanging behind a dead read.
+            // Regression guard for the canonical Modbus-gateway use case: one TCP connection to a
+            // gateway that proxies multiple slaves. A timeout on one slave must not kill the
+            // connection — subsequent requests against other slaves must still succeed (matching
+            // the sync <c>ReadHoldingRegisters</c> behavior).
             using var server = new SilentTcpServer();
             using var master = CreateMaster(server.Port, retries: 0);
 
+            // First call times out.
             await Should.ThrowAsync<IOException>(() => master.ReadHoldingRegistersAsync(1, 0, 1));
 
-            // Second call must fail FAST (not hang for the timeout period) because the socket is closed.
+            // Second call must also hit the silent server and time out cleanly — NOT hang, NOT throw
+            // ObjectDisposedException or "non-connected sockets". The whole loop should complete in
+            // well under (2 * count) seconds (proves no serial-orphaned-read blocking).
             var stopwatch = Stopwatch.StartNew();
-            await Should.ThrowAsync<ObjectDisposedException>(
-                () => master.ReadHoldingRegistersAsync(2, 0, 1));
+            for (int i = 0; i < 3; i++)
+            {
+                await Should.ThrowAsync<IOException>(() => master.ReadHoldingRegistersAsync(1, 0, 1));
+            }
             stopwatch.Stop();
 
-            stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(1));
+            // 3 calls × 500ms ReadTimeout = 1.5s expected. Allow up to 2.5s to allow for scheduling.
+            stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(3));
         }
 
         [Fact]

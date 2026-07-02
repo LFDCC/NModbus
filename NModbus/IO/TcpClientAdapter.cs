@@ -53,54 +53,80 @@ namespace NModbus.IO
 
         public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            // NetworkStream.ReadAsync ignores ReadTimeout (unlike the synchronous Read), so enforce it here.
+            // Use the underlying Socket directly, not NetworkStream. The async APIs of NetworkStream
+            // ignore the timeout property and on timeout they don't actually cancel the in-flight
+            // receive synchronously — even on .NET 7+ — so a follow-up read sees the previous one as
+            // "in progress" and throws InvalidOperationException. The Socket API is the underlying
+            // primitive NetworkStream wraps; using it directly gives clean cancellation semantics and
+            // allows back-to-back reads after a timeout, which is what the canonical "one TCP
+            // connection to a Modbus gateway that proxies multiple slaves" use case needs.
             //
-            // We use cancel-based timeout and FORCE-CLOSE the underlying TcpClient on timeout. The
-            // alternative (preserving connection) leaves the in-flight socket read running, which:
-            //   1) causes the next request's response to be delivered to the orphaned read instead of
-            //      the new one (a race that broke sequential operations against the same socket);
-            //   2) serializes the next ReadAsync behind the orphan on .NET 6, since NetworkStream does
-            //      not reliably honor cancellation to actually abort the underlying receive.
-            // Forcing the socket closed makes the next operation on this transport fail immediately
-            // with ObjectDisposedException rather than hanging behind a dead read. The caller is
-            // expected to create a new master after such a failure.
-            var stream = _tcpClient.GetStream();
-            try
+            // ReadTimeout enforcement: the Socket's ReceiveTimeout is NOT observed by ReceiveAsync
+            // either, so we apply a linked-token timeout. If the timeout is infinite (0 / -1), the
+            // caller's own cancellation token is the only deadline — in that case we don't wrap and
+            // OCE propagates as OCE (no spurious "timed out" exception).
+            var socket = _tcpClient.Client;
+            int receiveTimeout = socket.ReceiveTimeout;
+
+            int total = 0;
+            while (total < buffer.Length)
             {
-                return await StreamResourceTimeout.ReadWithTimeoutAsync(
-                    ct => stream.ReadAsync(buffer, ct),
-                    stream.ReadTimeout,
-                    () => new IOException("The read operation timed out.", new SocketException((int)SocketError.TimedOut)),
-                    cancellationToken).ConfigureAwait(false);
+                int read;
+                if (IsInfinite(receiveTimeout))
+                {
+                    read = await socket.ReceiveAsync(buffer.Slice(total), SocketFlags.None, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    using var timeoutCts = new CancellationTokenSource(receiveTimeout);
+                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                    try
+                    {
+                        read = await socket.ReceiveAsync(buffer.Slice(total), SocketFlags.None, linkedCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                    {
+                        throw new IOException("The read operation timed out.", new SocketException((int)SocketError.TimedOut));
+                    }
+                }
+
+                if (read == 0)
+                {
+                    throw new IOException("Read resulted in 0 bytes returned.");
+                }
+
+                total += read;
             }
-            catch (IOException ex) when (ex.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut })
-            {
-                // The socket is in an indeterminate state (orphan read may still be pending). Close it
-                // so the next operation fails fast rather than hanging behind the dead read.
-                try { _tcpClient.Close(); } catch { /* best effort */ }
-                throw;
-            }
+
+            return total;
         }
 
         public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            // NetworkStream.WriteAsync ignores WriteTimeout (unlike the synchronous Write), so enforce it here.
-            // Same rationale as ReadAsync — force-close the socket on write timeout.
-            var stream = _tcpClient.GetStream();
+            var socket = _tcpClient.Client;
+            int sendTimeout = socket.SendTimeout;
+
+            if (IsInfinite(sendTimeout))
+            {
+                await socket.SendAsync(buffer, SocketFlags.None, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            using var timeoutCts = new CancellationTokenSource(sendTimeout);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
             try
             {
-                await StreamResourceTimeout.WriteWithTimeoutAsync(
-                    ct => stream.WriteAsync(buffer, ct),
-                    stream.WriteTimeout,
-                    () => new IOException("The write operation timed out.", new SocketException((int)SocketError.TimedOut)),
-                    cancellationToken).ConfigureAwait(false);
+                await socket.SendAsync(buffer, SocketFlags.None, linkedCts.Token).ConfigureAwait(false);
             }
-            catch (IOException ex) when (ex.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut })
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
-                try { _tcpClient.Close(); } catch { /* best effort */ }
-                throw;
+                throw new IOException("The write operation timed out.", new SocketException((int)SocketError.TimedOut));
             }
         }
+
+        private static bool IsInfinite(int timeoutMilliseconds)
+            => timeoutMilliseconds <= 0 || timeoutMilliseconds == Timeout.Infinite;
 
         public void Dispose()
         {

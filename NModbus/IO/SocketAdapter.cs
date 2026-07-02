@@ -50,25 +50,54 @@ namespace NModbus.IO
 
         public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            // Socket.ReceiveAsync ignores ReceiveTimeout (unlike the synchronous Receive), so enforce it here.
-            // Use the connection-preserving variant: cancelling an in-flight socket read tears the socket down
-            // on some runtimes, which would break the transport's retry loop.
-            return await StreamResourceTimeout.ReadWithTimeoutPreservingConnectionAsync(
-                ct => _socketClient.ReceiveAsync(buffer, SocketFlags.None, ct),
-                _socketClient.ReceiveTimeout,
-                () => new SocketException((int)SocketError.TimedOut),
-                cancellationToken).ConfigureAwait(false);
+            // Socket.ReceiveAsync ignores ReceiveTimeout (unlike the synchronous Receive), so enforce
+            // it via a linked cancellation token. If the timeout is infinite, the caller's own
+            // token is the only deadline — OCE propagates as OCE (no spurious "timed out" exception).
+            int receiveTimeout = _socketClient.ReceiveTimeout;
+
+            if (IsInfinite(receiveTimeout))
+            {
+                return await _socketClient.ReceiveAsync(buffer, SocketFlags.None, cancellationToken).ConfigureAwait(false);
+            }
+
+            using var timeoutCts = new CancellationTokenSource(receiveTimeout);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+            try
+            {
+                return await _socketClient.ReceiveAsync(buffer, SocketFlags.None, linkedCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                throw new SocketException((int)SocketError.TimedOut);
+            }
         }
 
         public async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            // Socket.SendAsync ignores SendTimeout (unlike the synchronous Send), so enforce it here.
-            await StreamResourceTimeout.WriteWithTimeoutPreservingConnectionAsync(
-                async ct => await _socketClient.SendAsync(buffer, SocketFlags.None, ct).ConfigureAwait(false),
-                _socketClient.SendTimeout,
-                () => new SocketException((int)SocketError.TimedOut),
-                cancellationToken).ConfigureAwait(false);
+            int sendTimeout = _socketClient.SendTimeout;
+
+            if (IsInfinite(sendTimeout))
+            {
+                await _socketClient.SendAsync(buffer, SocketFlags.None, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            using var timeoutCts = new CancellationTokenSource(sendTimeout);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+            try
+            {
+                await _socketClient.SendAsync(buffer, SocketFlags.None, linkedCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                throw new SocketException((int)SocketError.TimedOut);
+            }
         }
+
+        private static bool IsInfinite(int timeoutMilliseconds)
+            => timeoutMilliseconds <= 0 || timeoutMilliseconds == Timeout.Infinite;
 
         public void Dispose()
         {
