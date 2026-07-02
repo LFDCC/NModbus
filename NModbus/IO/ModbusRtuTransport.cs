@@ -58,12 +58,12 @@ namespace NModbus.IO
             while (numBytesReadTotal != count)
             {
                 int numBytesRead = StreamResource.Read(frameBytes, numBytesReadTotal, count - numBytesReadTotal);
-                
+
                 if (numBytesRead == 0)
                 {
                     throw new IOException("Read resulted in 0 bytes returned.");
                 }
-                
+
                 numBytesReadTotal += numBytesRead;
             }
 
@@ -134,7 +134,7 @@ namespace NModbus.IO
             return frame;
         }
 
-        private async Task<byte[]> ReadAsync(int count, CancellationToken cancellationToken = default)
+        protected virtual async Task<byte[]> ReadAsync(int count, CancellationToken cancellationToken = default)
         {
             byte[] frameBytes = new byte[count];
             int numBytesReadTotal = 0;

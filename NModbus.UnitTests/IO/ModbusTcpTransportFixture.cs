@@ -66,7 +66,8 @@ namespace NModbus.UnitTests.IO
                 new byte[] { 1 }.Concat(request.ProtocolDataUnit).ToArray()
             };
 
-            mock.Setup(s => s.Read(It.Is<byte[]>(x => x.Length == 6), 0, 6))
+            // Note: ReadExactlyAsync rents a pooled buffer (>=6 bytes), so we don't constrain on Length.
+            mock.Setup(s => s.Read(It.IsAny<byte[]>(), 0, 6))
                 .Returns((byte[] buf, int offset, int count) =>
                 {
                     Array.Copy(source[calls++], buf, 6);
@@ -84,8 +85,8 @@ namespace NModbus.UnitTests.IO
         public void ReadRequestResponse_ConnectionAbortedWhileReadingMBAPHeader()
         {
             var mock = new Mock<IStreamResource>(MockBehavior.Strict);
-            mock.Setup(s => s.Read(It.Is<byte[]>(x => x.Length == 6), 0, 6)).Returns(3);
-            mock.Setup(s => s.Read(It.Is<byte[]>(x => x.Length == 6), 3, 3)).Returns(0);
+            mock.Setup(s => s.Read(It.IsAny<byte[]>(), 0, 6)).Returns(3);
+            mock.Setup(s => s.Read(It.IsAny<byte[]>(), 3, 3)).Returns(0);
 
             Assert.Throws<IOException>(() => ModbusIpTransport.ReadRequestResponse(mock.Object, NullModbusLogger.Instance));
             mock.VerifyAll();
@@ -96,9 +97,9 @@ namespace NModbus.UnitTests.IO
         {
             var mock = new Mock<IStreamResource>(MockBehavior.Strict);
 
-            mock.Setup(s => s.Read(It.Is<byte[]>(x => x.Length == 6), 0, 6)).Returns(6);
-            mock.Setup(s => s.Read(It.Is<byte[]>(x => x.Length == 6), 0, 6)).Returns(3);
-            mock.Setup(s => s.Read(It.Is<byte[]>(x => x.Length == 6), 3, 3)).Returns(0);
+            mock.Setup(s => s.Read(It.IsAny<byte[]>(), 0, 6)).Returns(6);
+            mock.Setup(s => s.Read(It.IsAny<byte[]>(), 0, 6)).Returns(3);
+            mock.Setup(s => s.Read(It.IsAny<byte[]>(), 3, 3)).Returns(0);
 
             Assert.Throws<IOException>(() => ModbusIpTransport.ReadRequestResponse(mock.Object, NullModbusLogger.Instance));
             mock.VerifyAll();

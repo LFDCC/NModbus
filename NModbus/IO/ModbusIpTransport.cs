@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
 using System.Linq;
@@ -30,55 +31,67 @@ namespace NModbus.IO
             if (streamResource == null) throw new ArgumentNullException(nameof(streamResource));
             if (logger == null) throw new ArgumentNullException(nameof(logger));
 
-            // read header
-            var mbapHeader = new byte[6];
-            int numBytesRead = 0;
-
-            while (numBytesRead != 6)
+            // Rent the two scratch buffers (MBAP header + PDU body) from the shared pool — both are
+            // returned to the pool before this method hands the combined `frame` back to the caller.
+            byte[] mbapHeader = ArrayPool<byte>.Shared.Rent(6);
+            byte[] messageFrame = null;
+            try
             {
-                int bRead = streamResource.Read(mbapHeader, numBytesRead, 6 - numBytesRead);
-
-                if (bRead == 0)
+                // read header
+                int numBytesRead = 0;
+                while (numBytesRead != 6)
                 {
-                    throw new IOException("Read resulted in 0 bytes returned.");
+                    int bRead = streamResource.Read(mbapHeader, numBytesRead, 6 - numBytesRead);
+
+                    if (bRead == 0)
+                    {
+                        throw new IOException("Read resulted in 0 bytes returned.");
+                    }
+
+                    numBytesRead += bRead;
                 }
 
-                numBytesRead += bRead;
-            }
+                logger.Debug($"MBAP header: {string.Join(", ", mbapHeader)}");
+                var frameLength = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(4));
+                logger.Debug($"{frameLength} bytes in PDU.");
 
-            logger.Debug($"MBAP header: {string.Join(", ", mbapHeader)}");
-            var frameLength = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(4));
-            logger.Debug($"{frameLength} bytes in PDU.");
+                // Validate MBAP Length field: must be 1..260 (Unit ID + PDU; PDU max = 253+6 padding)
+                if (frameLength == 0)
+                    throw new IOException($"Invalid MBAP frame length: 0. Connection may be corrupt.");
+                if (frameLength > 260)
+                    throw new IOException($"Invalid MBAP frame length: {frameLength}. Exceeds maximum allowed (260). Possible DoS or corrupt frame.");
 
-            // Validate MBAP Length field: must be 1..260 (Unit ID + PDU; PDU max = 253+6 padding)
-            if (frameLength == 0)
-                throw new IOException($"Invalid MBAP frame length: 0. Connection may be corrupt.");
-            if (frameLength > 260)
-                throw new IOException($"Invalid MBAP frame length: {frameLength}. Exceeds maximum allowed (260). Possible DoS or corrupt frame.");
+                // read message
+                messageFrame = ArrayPool<byte>.Shared.Rent(frameLength);
+                numBytesRead = 0;
 
-            // read message
-            var messageFrame = new byte[frameLength];
-            numBytesRead = 0;
-
-            while (numBytesRead != frameLength)
-            {
-                int bRead = streamResource.Read(messageFrame, numBytesRead, frameLength - numBytesRead);
-
-                if (bRead == 0)
+                while (numBytesRead != frameLength)
                 {
-                    throw new IOException("Read resulted in 0 bytes returned.");
+                    int bRead = streamResource.Read(messageFrame, numBytesRead, frameLength - numBytesRead);
+
+                    if (bRead == 0)
+                    {
+                        throw new IOException("Read resulted in 0 bytes returned.");
+                    }
+
+                    numBytesRead += bRead;
                 }
 
-                numBytesRead += bRead;
+                logger.Debug($"PDU: {frameLength}");
+                // Combined frame is the public return value — must be a tight array, not pooled, because
+                // CreateMessageAndInitializeTransactionId and downstream consumers take ownership.
+                var frame = new byte[6 + frameLength];
+                mbapHeader.AsSpan(0, 6).CopyTo(frame);
+                messageFrame.AsSpan(0, frameLength).CopyTo(frame.AsSpan(6));
+                logger.LogFrameRx(frame);
+
+                return frame;
             }
-
-            logger.Debug($"PDU: {frameLength}");
-            var frame = new byte[6 + frameLength];
-            mbapHeader.CopyTo(frame, 0);
-            messageFrame.CopyTo(frame, 6);
-            logger.LogFrameRx(frame);
-
-            return frame;
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(mbapHeader);
+                if (messageFrame != null) ArrayPool<byte>.Shared.Return(messageFrame);
+            }
         }
 
         public static byte[] GetMbapHeader(IModbusMessage message)
@@ -175,57 +188,69 @@ namespace NModbus.IO
 
         private async Task<byte[]> ReadRequestResponseAsync(CancellationToken cancellationToken = default)
         {
-            // read header
-            var mbapHeader = new byte[6];
-            int numBytesRead = 0;
-
-            while (numBytesRead != 6)
+            // Rent the two scratch buffers (MBAP header + PDU body) from the shared pool — both are
+            // returned to the pool before this method hands the combined `frame` back to the caller.
+            byte[] mbapHeader = ArrayPool<byte>.Shared.Rent(6);
+            byte[] messageFrame = null;
+            try
             {
-                int bRead = await StreamResource.ReadAsync(mbapHeader.AsMemory(numBytesRead, 6 - numBytesRead), cancellationToken).ConfigureAwait(false);
-
-                if (bRead == 0)
+                // read header
+                int numBytesRead = 0;
+                while (numBytesRead != 6)
                 {
-                    throw new IOException("Read resulted in 0 bytes returned.");
+                    int bRead = await StreamResource.ReadAsync(mbapHeader.AsMemory(numBytesRead, 6 - numBytesRead), cancellationToken).ConfigureAwait(false);
+
+                    if (bRead == 0)
+                    {
+                        throw new IOException("Read resulted in 0 bytes returned.");
+                    }
+
+                    numBytesRead += bRead;
                 }
 
-                numBytesRead += bRead;
-            }
+                Logger.Debug($"MBAP header: {string.Join(", ", mbapHeader)}");
+                var frameLength = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(4));
+                Logger.Debug($"{frameLength} bytes in PDU.");
 
-            Logger.Debug($"MBAP header: {string.Join(", ", mbapHeader)}");
-            var frameLength = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(4));
-            Logger.Debug($"{frameLength} bytes in PDU.");
+                // Validate MBAP Length field: must be 1..260 (Unit ID + PDU; PDU max = 253+6 padding)
+                if (frameLength == 0)
+                    throw new IOException($"Invalid MBAP frame length: 0. Connection may be corrupt.");
+                if (frameLength > 260)
+                    throw new IOException($"Invalid MBAP frame length: {frameLength}. Exceeds maximum allowed (260). Possible DoS or corrupt frame.");
 
-            // Validate MBAP Length field: must be 1..260 (Unit ID + PDU; PDU max = 253+6 padding)
-            if (frameLength == 0)
-                throw new IOException($"Invalid MBAP frame length: 0. Connection may be corrupt.");
-            if (frameLength > 260)
-                throw new IOException($"Invalid MBAP frame length: {frameLength}. Exceeds maximum allowed (260). Possible DoS or corrupt frame.");
+                // read message
+                messageFrame = ArrayPool<byte>.Shared.Rent(frameLength);
+                numBytesRead = 0;
 
-            // read message
-            var messageFrame = new byte[frameLength];
-            numBytesRead = 0;
-
-            while (numBytesRead != frameLength)
-            {
-                int bRead = await StreamResource.ReadAsync(messageFrame.AsMemory(numBytesRead, frameLength - numBytesRead), cancellationToken).ConfigureAwait(false);
-
-                if (bRead == 0)
+                while (numBytesRead != frameLength)
                 {
-                    throw new IOException("Read resulted in 0 bytes returned.");
+                    int bRead = await StreamResource.ReadAsync(messageFrame.AsMemory(numBytesRead, frameLength - numBytesRead), cancellationToken).ConfigureAwait(false);
+
+                    if (bRead == 0)
+                    {
+                        throw new IOException("Read resulted in 0 bytes returned.");
+                    }
+
+                    numBytesRead += bRead;
                 }
 
-                numBytesRead += bRead;
+                Logger.Debug($"PDU: {frameLength}");
+
+                // Combined frame is the public return value — must be a tight array, not pooled, because
+                // CreateMessageAndInitializeTransactionId and downstream consumers take ownership.
+                var frame = new byte[6 + frameLength];
+                mbapHeader.AsSpan(0, 6).CopyTo(frame);
+                messageFrame.AsSpan(0, frameLength).CopyTo(frame.AsSpan(6));
+
+                Logger.LogFrameRx(frame);
+
+                return frame;
             }
-
-            Logger.Debug($"PDU: {frameLength}");
-
-            var frame = new byte[mbapHeader.Length + messageFrame.Length];
-            mbapHeader.CopyTo(frame, 0);
-            messageFrame.CopyTo(frame, mbapHeader.Length);
-
-            Logger.LogFrameRx(frame);
-
-            return frame;
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(mbapHeader);
+                if (messageFrame != null) ArrayPool<byte>.Shared.Return(messageFrame);
+            }
         }
 
         internal override void OnValidateResponse(IModbusMessage request, IModbusMessage response)

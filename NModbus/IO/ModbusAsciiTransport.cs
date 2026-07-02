@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -61,7 +62,9 @@ namespace NModbus.IO
             // read message frame, removing frame start ':'
             string frameHex = StreamResourceUtility.ReadLine(StreamResource).Substring(1);
 
-            // convert hex to bytes
+            // Decode the hex into a fresh tightly-sized byte[] (caller-owned). The string itself is
+            // an unavoidable intermediate on the sync path because StreamResourceUtility.ReadLine is
+            // built around a string; the Span overload on HexToBytes only helps the async path.
             byte[] frame = ModbusUtility.HexToBytes(frameHex);
             Logger.Trace($"RX: {string.Join(", ", frame)}");
 
@@ -91,12 +94,9 @@ namespace NModbus.IO
 
         private async Task<byte[]> ReadRequestResponseAsync(CancellationToken cancellationToken = default)
         {
-            // Read line asynchronously, removing frame start ':'
-            string frameHex = await ReadLineAsync(cancellationToken).ConfigureAwait(false);
-            frameHex = frameHex.Substring(1);
-
-            // convert hex to bytes
-            byte[] frame = ModbusUtility.HexToBytes(frameHex);
+            // ReadLineAsync now returns the decoded bytes directly (it handles ':' stripping and
+            // hex decoding internally using pooled buffers).
+            byte[] frame = await ReadLineAsync(cancellationToken).ConfigureAwait(false);
             Logger.Trace($"RX: {string.Join(", ", frame)}");
 
             if (frame.Length < 3)
@@ -110,59 +110,94 @@ namespace NModbus.IO
         // Maximum ASCII frame length — see StreamResourceUtility.MaxAsciiFrameLength for rationale
         private const int MaxAsciiFrameLength = 512;
 
-        private async Task<string> ReadLineAsync(CancellationToken cancellationToken = default)
+        /// <summary>
+        ///     Reads one ASCII frame asynchronously into a pooled buffer and returns the decoded
+        ///     byte array. The <c>StringBuilder</c>+<c>ToString()</c>+hex-decode
+        ///     chain that the old code used has been replaced with a single pooled <c>char[]</c>
+        ///     scanned directly for <c>'\n'</c>, then a pooled <c>byte[]</c> written by
+        ///     <see cref="ModbusUtility.HexToBytes(ReadOnlySpan{char}, Span{byte})"/>. The public
+        ///     return value is a tightly-sized array (caller-owned) so downstream code is unchanged.
+        /// </summary>
+        private async Task<byte[]> ReadLineAsync(CancellationToken cancellationToken = default)
         {
-            // Pre-size to the max frame size so we never reallocate.
-            var sb = new StringBuilder(MaxAsciiFrameLength);
-
-            int bufferPos = 0;
-            int bufferLen = 0;
-
-            while (true)
+            char[] charBuffer = ArrayPool<char>.Shared.Rent(MaxAsciiFrameLength);
+            try
             {
-                if (sb.Length > MaxAsciiFrameLength)
+                int charLen = 0;
+                int bufferPos = 0;
+                int bufferLen = 0;
+
+                while (true)
                 {
-                    throw new IOException($"ASCII frame exceeded maximum allowed length ({MaxAsciiFrameLength} chars). Possible DoS or corrupt stream.");
+                    if (charLen > MaxAsciiFrameLength)
+                    {
+                        throw new IOException($"ASCII frame exceeded maximum allowed length ({MaxAsciiFrameLength} chars). Possible DoS or corrupt stream.");
+                    }
+
+                    // Refill the byte buffer when drained.
+                    if (bufferPos >= bufferLen)
+                    {
+                        int read;
+                        try
+                        {
+                            read = await StreamResource.ReadAsync(_readBuffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // ASCII is half-duplex too: a cancelled read leaves the slave's mid-response
+                            // bytes stranded in the serial FIFO. Purge so the next UnicastMessage
+                            // doesn't start in the middle of a stale frame.
+                            StreamResource.DiscardInBuffer();
+                            throw;
+                        }
+                        if (read == 0)
+                        {
+                            throw new IOException("End of stream while reading ASCII frame.");
+                        }
+                        bufferLen = read;
+                        bufferPos = 0;
+                    }
+
+                    // ASCII frames are 7-bit clean; cast is safe.
+                    char c = (char)_readBuffer[bufferPos++];
+                    if (c == '\n')
+                    {
+                        break;
+                    }
+
+                    if (c != '\r')
+                    {
+                        if (charLen >= charBuffer.Length)
+                        {
+                            // Pool didn't give us enough — the char count guard above (charLen > MaxAsciiFrameLength)
+                            // would already have thrown, so this is a pool-bucket round-down edge case. Grow.
+                            char[] grown = ArrayPool<char>.Shared.Rent(charBuffer.Length * 2);
+                            Array.Copy(charBuffer, 0, grown, 0, charBuffer.Length);
+                            ArrayPool<char>.Shared.Return(charBuffer);
+                            charBuffer = grown;
+                        }
+                        charBuffer[charLen++] = c;
+                    }
                 }
 
-                // Refill the buffer when drained.
-                if (bufferPos >= bufferLen)
+                // The wire frame starts with ':' which the previous code stripped via Substring(1) AFTER
+                // building a string. We can avoid the leading ':' here: drop the first char if present.
+                int hexStart = (charLen > 0 && charBuffer[0] == ':') ? 1 : 0;
+                int hexLen = charLen - hexStart;
+                if (hexLen % 2 != 0)
                 {
-                    int read;
-                    try
-                    {
-                        read = await StreamResource.ReadAsync(_readBuffer.AsMemory(), cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // ASCII is half-duplex too: a cancelled read leaves the slave's mid-response
-                        // bytes stranded in the serial FIFO. Purge so the next UnicastMessage
-                        // doesn't start in the middle of a stale frame.
-                        StreamResource.DiscardInBuffer();
-                        throw;
-                    }
-                    if (read == 0)
-                    {
-                        throw new IOException("End of stream while reading ASCII frame.");
-                    }
-                    bufferLen = read;
-                    bufferPos = 0;
+                    throw new IOException($"ASCII frame hex length is not even ({hexLen} chars). Corrupt frame.");
                 }
 
-                // ASCII frames are 7-bit clean; cast is safe.
-                char c = (char)_readBuffer[bufferPos++];
-                if (c == '\n')
-                {
-                    break;
-                }
-
-                if (c != '\r')
-                {
-                    sb.Append(c);
-                }
+                int byteLen = hexLen / 2;
+                byte[] bytes = new byte[byteLen];
+                ModbusUtility.HexToBytes(charBuffer.AsSpan(hexStart, hexLen), bytes);
+                return bytes;
             }
-
-            return sb.ToString();
+            finally
+            {
+                ArrayPool<char>.Shared.Return(charBuffer);
+            }
         }
     }
 }

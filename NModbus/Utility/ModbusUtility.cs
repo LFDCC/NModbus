@@ -192,14 +192,37 @@ namespace NModbus.Utility
                 throw new FormatException(Resources.HexCharacterCountNotEven);
             }
 
+            byte[] bytes = new byte[hex.Length >> 1];
+            HexToBytes(hex.AsSpan(), bytes);
+            return bytes;
+        }
+
+        /// <summary>
+        ///     Decodes a hex string into a caller-provided destination span. Avoids the per-call
+        ///     <c>new byte[]</c> allocation of the <see cref="string"/> overload when the caller
+        ///     already has a destination buffer (e.g. rented from <c>ArrayPool&lt;byte&gt;.Shared</c>).
+        /// </summary>
+        public static void HexToBytes(ReadOnlySpan<char> hex, Span<byte> destination)
+        {
+            if (hex.Length % 2 != 0)
+            {
+                throw new FormatException(Resources.HexCharacterCountNotEven);
+            }
+
+            int outputLength = hex.Length / 2;
+            if (destination.Length < outputLength)
+            {
+                throw new ArgumentException(
+                    $"Destination span is too small: needs {outputLength} bytes, has {destination.Length}.",
+                    nameof(destination));
+            }
+
             // Polyfill for Convert.FromHexString (introduced in .NET 5, not available on netstandard2.1).
             // Input is validated to be a clean (no whitespace, no prefix) even-length string by the checks above.
-            byte[] bytes = new byte[hex.Length >> 1];
-            for (int i = 0; i < bytes.Length; i++)
+            for (int i = 0; i < outputLength; i++)
             {
-                bytes[i] = (byte)((HexCharToInt(hex[i * 2]) << 4) | HexCharToInt(hex[i * 2 + 1]));
+                destination[i] = (byte)((HexCharToInt(hex[i * 2]) << 4) | HexCharToInt(hex[i * 2 + 1]));
             }
-            return bytes;
         }
 
         private static int HexCharToInt(char c)
