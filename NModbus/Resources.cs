@@ -30,10 +30,6 @@
 
         public const string SlaveExceptionResponseInvalidFunctionCode = "Invalid function code value for SlaveExceptionResponse.";
 
-        public const string TimeoutNotSupported = "The compact framework UDP client does not support timeouts.";
-
-        public const string UdpClientNotConnected = "UdpClient must be bound to a default remote host. Call the Connect method.";
-
         public const string Unknown = "Unknown slave exception code.";
 
         public const string WaitRetryGreaterThanZero = "WaitToRetryMilliseconds must be greater than 0.";
