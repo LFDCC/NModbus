@@ -40,9 +40,9 @@ namespace NModbus.IO
                 // Read header
                 streamResource.ReadExactly(mbapHeader, 6);
 
-                logger.Debug($"MBAP header: {string.Join(", ", mbapHeader)}");
+                logger.Debug(() => $"MBAP header: {string.Join(", ", mbapHeader)}");
                 var frameLength = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(4));
-                logger.Debug($"{frameLength} bytes in PDU.");
+                logger.Debug(() => $"{frameLength} bytes in PDU.");
 
                 // Validate MBAP Length field: must be 1..260 (Unit ID + PDU; PDU max = 253+6 padding)
                 if (frameLength == 0)
@@ -54,7 +54,7 @@ namespace NModbus.IO
                 messageFrame = ArrayPool<byte>.Shared.Rent(frameLength);
                 streamResource.ReadExactly(messageFrame, frameLength);
 
-                logger.Debug($"PDU: {frameLength}");
+                logger.Debug(() => $"PDU: {frameLength}");
                 // Combined frame is the public return value — must be a tight array, not pooled, because
                 // CreateMessageAndInitializeTransactionId and downstream consumers take ownership.
                 var frame = new byte[6 + frameLength];
@@ -174,9 +174,9 @@ namespace NModbus.IO
                 // Read header
                 await StreamResource.ReadExactlyAsync(mbapHeader, 6, cancellationToken).ConfigureAwait(false);
 
-                Logger.Debug($"MBAP header: {string.Join(", ", mbapHeader)}");
+                Logger.Debug(() => $"MBAP header: {string.Join(", ", mbapHeader)}");
                 var frameLength = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(4));
-                Logger.Debug($"{frameLength} bytes in PDU.");
+                Logger.Debug(() => $"{frameLength} bytes in PDU.");
 
                 // Validate MBAP Length field: must be 1..260 (Unit ID + PDU; PDU max = 253+6 padding)
                 if (frameLength == 0)
@@ -188,7 +188,7 @@ namespace NModbus.IO
                 messageFrame = ArrayPool<byte>.Shared.Rent(frameLength);
                 await StreamResource.ReadExactlyAsync(messageFrame, frameLength, cancellationToken).ConfigureAwait(false);
 
-                Logger.Debug($"PDU: {frameLength}");
+                Logger.Debug(() => $"PDU: {frameLength}");
 
                 // Combined frame is the public return value — must be a tight array, not pooled, because
                 // CreateMessageAndInitializeTransactionId and downstream consumers take ownership.

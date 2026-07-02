@@ -132,7 +132,7 @@ namespace NModbus.Device
                        return;
                    }
 
-                   Logger.Debug($"Master at {EndPoint} sent header: \"{string.Join(", ", _mbapHeader)}\" with {frameLength} bytes in PDU");
+                   Logger.Debug(() => $"Master at {EndPoint} sent header: \"{string.Join(", ", _mbapHeader)}\" with {frameLength} bytes in PDU");
 
                    // Read the full PDU
                    _messageFrame = new byte[frameLength];

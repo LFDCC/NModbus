@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using NModbus.Logging;
 using NModbus.Utility;
 
+
 namespace NModbus.IO
 {
     /// <summary>
@@ -110,6 +111,10 @@ namespace NModbus.IO
         // Maximum ASCII frame length — see StreamResourceUtility.MaxAsciiFrameLength for rationale
         private const int MaxAsciiFrameLength = 512;
 
+        // Vectorized byte search for the LF terminator. On .NET 8 this JITs down to SIMD
+        // (SSE2/AVX2) instructions, dramatically faster than a per-byte loop on long frames.
+        private static readonly SearchValues<byte> s_linefeed = System.Buffers.SearchValues.Create(new byte[] { (byte)'\n' });
+
         /// <summary>
         ///     Reads one ASCII frame asynchronously into a pooled buffer and returns the decoded
         ///     byte array. The <c>StringBuilder</c>+<c>ToString()</c>+hex-decode
@@ -158,36 +163,39 @@ namespace NModbus.IO
                         bufferPos = 0;
                     }
 
-                    // ASCII frames are 7-bit clean; cast is safe.
-                    char c = (char)_readBuffer[bufferPos++];
-                    if (c == '\n')
+                    // Use SearchValues<byte> to vectorize the LF scan over the remaining buffer bytes.
+                    // On frames ≤ 512 bytes this is a single SIMD pass replacing the old per-byte loop.
+                    int remaining = bufferLen - bufferPos;
+                    int lfIndex = _readBuffer.AsSpan(bufferPos, remaining).IndexOfAny(s_linefeed);
+
+                    if (lfIndex >= 0)
                     {
+                        // LF found — append everything before it (skipping \r) and break.
+                        for (int i = 0; i < lfIndex; i++)
+                        {
+                            char c = (char)_readBuffer[bufferPos + i];
+                            if (c != '\r')
+                                AppendChar(ref charBuffer, ref charLen, c);
+                        }
+                        bufferPos += lfIndex + 1;
                         break;
                     }
 
-                    if (c != '\r')
+                    // No LF yet — append all non-\r chars then refill.
+                    for (int i = 0; i < remaining; i++)
                     {
-                        if (charLen >= charBuffer.Length)
-                        {
-                            // Pool didn't give us enough — the char count guard above (charLen > MaxAsciiFrameLength)
-                            // would already have thrown, so this is a pool-bucket round-down edge case. Grow.
-                            char[] grown = ArrayPool<char>.Shared.Rent(charBuffer.Length * 2);
-                            Array.Copy(charBuffer, 0, grown, 0, charBuffer.Length);
-                            ArrayPool<char>.Shared.Return(charBuffer);
-                            charBuffer = grown;
-                        }
-                        charBuffer[charLen++] = c;
+                        char c = (char)_readBuffer[bufferPos + i];
+                        if (c != '\r')
+                            AppendChar(ref charBuffer, ref charLen, c);
                     }
+                    bufferPos = bufferLen;
                 }
 
-                // The wire frame starts with ':' which the previous code stripped via Substring(1) AFTER
-                // building a string. We can avoid the leading ':' here: drop the first char if present.
+                // Drop leading ':' (frame start delimiter)
                 int hexStart = (charLen > 0 && charBuffer[0] == ':') ? 1 : 0;
                 int hexLen = charLen - hexStart;
                 if (hexLen % 2 != 0)
-                {
                     throw new IOException($"ASCII frame hex length is not even ({hexLen} chars). Corrupt frame.");
-                }
 
                 int byteLen = hexLen / 2;
                 byte[] bytes = new byte[byteLen];
@@ -198,6 +206,18 @@ namespace NModbus.IO
             {
                 ArrayPool<char>.Shared.Return(charBuffer);
             }
+        }
+
+        private static void AppendChar(ref char[] buffer, ref int length, char c)
+        {
+            if (length >= buffer.Length)
+            {
+                char[] grown = ArrayPool<char>.Shared.Rent(buffer.Length * 2);
+                Array.Copy(buffer, 0, grown, 0, buffer.Length);
+                ArrayPool<char>.Shared.Return(buffer);
+                buffer = grown;
+            }
+            buffer[length++] = c;
         }
     }
 }
