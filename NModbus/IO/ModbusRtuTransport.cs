@@ -52,22 +52,7 @@ namespace NModbus.IO
 
         public virtual byte[] Read(int count)
         {
-            byte[] frameBytes = new byte[count];
-            int numBytesReadTotal = 0;
-
-            while (numBytesReadTotal != count)
-            {
-                int numBytesRead = StreamResource.Read(frameBytes, numBytesReadTotal, count - numBytesReadTotal);
-
-                if (numBytesRead == 0)
-                {
-                    throw new IOException("Read resulted in 0 bytes returned.");
-                }
-
-                numBytesReadTotal += numBytesRead;
-            }
-
-            return frameBytes;
+            return StreamResource.ReadExactly(count);
         }
 
         public override byte[] BuildMessageFrame(IModbusMessage message)
@@ -134,36 +119,11 @@ namespace NModbus.IO
             return frame;
         }
 
-        protected virtual async Task<byte[]> ReadAsync(int count, CancellationToken cancellationToken = default)
+        protected virtual ValueTask<byte[]> ReadAsync(int count, CancellationToken cancellationToken = default)
         {
-            byte[] frameBytes = new byte[count];
-            int numBytesReadTotal = 0;
-
-            while (numBytesReadTotal != count)
-            {
-                int numBytesRead;
-                try
-                {
-                    numBytesRead = await StreamResource.ReadAsync(frameBytes.AsMemory(numBytesReadTotal, count - numBytesReadTotal), cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    // RTU is half-duplex: a cancelled read leaves the slave's mid-response bytes
-                    // stranded in the serial FIFO. Purge so the next UnicastMessage doesn't fail
-                    // its CRC on stale bytes.
-                    StreamResource.DiscardInBuffer();
-                    throw;
-                }
-
-                if (numBytesRead == 0)
-                {
-                    throw new IOException("Read resulted in 0 bytes returned.");
-                }
-
-                numBytesReadTotal += numBytesRead;
-            }
-
-            return frameBytes;
+            // RTU is half-duplex: a cancelled read leaves the slave's mid-response bytes stranded in
+            // the serial FIFO. Purge so the next UnicastMessage doesn't fail its CRC on stale bytes.
+            return StreamResource.ReadExactlyAsync(count, cancellationToken, onCancel: StreamResource.DiscardInBuffer);
         }
 
         private byte[] ReadResponse()

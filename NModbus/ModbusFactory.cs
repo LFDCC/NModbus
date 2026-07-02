@@ -1,9 +1,9 @@
 ﻿using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using NModbus.Device.MessageHandlers;
 using System.Linq;
 using System.Net.Sockets;
-using NModbus.Extensions;
 using NModbus.Data;
 using NModbus.Device;
 using NModbus.IO;
@@ -32,14 +32,16 @@ namespace NModbus
             new ReadDeviceIdentificationService(),
         };
 
-        private readonly IDictionary<byte, IModbusFunctionService> _functionServices;
+        private readonly FrozenDictionary<byte, IModbusFunctionService> _functionServices;
 
         /// <summary>
         /// Create a factory which uses the built in standard slave function handlers.
         /// </summary>
         public ModbusFactory()
         {
-            _functionServices = BuiltInFunctionServices.ToDictionary(s => s.FunctionCode, s => s);
+            _functionServices = BuiltInFunctionServices
+                .ToDictionary(s => s.FunctionCode, s => s)
+                .ToFrozenDictionary();
 
             Logger = NullModbusLogger.Instance;
         }
@@ -51,34 +53,34 @@ namespace NModbus
         /// <param name="includeBuiltIn">If true, the built in function services are included. Otherwise, all function services will come from the functionService parameter.</param>
         /// <param name="logger">Logger</param>
         public ModbusFactory(
-            IEnumerable<IModbusFunctionService> functionServices = null, 
-            bool includeBuiltIn = true, 
+            IEnumerable<IModbusFunctionService> functionServices = null,
+            bool includeBuiltIn = true,
             IModbusLogger logger = null)
         {
             Logger = logger ?? NullModbusLogger.Instance;
 
-            //Determine if we're including the built in services
+            // Build a mutable dictionary first, merge custom services, then freeze.
+            Dictionary<byte, IModbusFunctionService> services;
+
             if (includeBuiltIn)
             {
-                //Make a dictionary out of the built in services
-                _functionServices = BuiltInFunctionServices
+                services = BuiltInFunctionServices
                     .ToDictionary(s => s.FunctionCode, s => s);
             }
             else
             {
-                //Create an empty dictionary
-                _functionServices = new Dictionary<byte, IModbusFunctionService>();
+                services = new Dictionary<byte, IModbusFunctionService>();
             }
 
             if (functionServices != null)
             {
-                //Add and replace the provided function services as necessary.
                 foreach (IModbusFunctionService service in functionServices)
                 {
-                    //This will add or replace the service.
-                    _functionServices[service.FunctionCode] = service;
+                    services[service.FunctionCode] = service;
                 }
             }
+
+            _functionServices = services.ToFrozenDictionary();
         }
 
         public IModbusSlave CreateSlave(byte unitId, ISlaveDataStore dataStore = null)
@@ -167,7 +169,8 @@ namespace NModbus
 
         public IModbusFunctionService GetFunctionService(byte functionCode)
         {
-            return _functionServices.GetValueOrDefault(functionCode);
+            _functionServices.TryGetValue(functionCode, out var service);
+            return service;
         }
     }
 }

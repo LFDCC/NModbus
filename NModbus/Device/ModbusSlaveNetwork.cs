@@ -93,7 +93,8 @@ namespace NModbus.Device
 
         public IModbusSlave GetSlave(byte unitId)
         {
-            return _slaves.GetValueOrDefault(unitId);
+            _slaves.TryGetValue(unitId, out var slave);
+            return slave;
         }
     }
 }

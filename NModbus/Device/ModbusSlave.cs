@@ -1,8 +1,8 @@
 ﻿using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using NModbus.Extensions;
 using NModbus.Message;
 
 namespace NModbus.Device 
@@ -12,7 +12,7 @@ namespace NModbus.Device
         private readonly byte _unitId;
         private readonly ISlaveDataStore _dataStore;
 
-        private readonly IDictionary<byte, IModbusFunctionService> _handlers;
+        private readonly FrozenDictionary<byte, IModbusFunctionService> _handlers;
 
         public ModbusSlave(byte unitId, ISlaveDataStore dataStore, IEnumerable<IModbusFunctionService> handlers)
         {
@@ -21,7 +21,7 @@ namespace NModbus.Device
 
             _unitId = unitId;
             _dataStore = dataStore;
-            _handlers = handlers.ToDictionary(h => h.FunctionCode, h => h);
+            _handlers = handlers.ToDictionary(h => h.FunctionCode, h => h).ToFrozenDictionary();
         }
 
         public byte UnitId => _unitId;
@@ -35,7 +35,7 @@ namespace NModbus.Device
             try
             {
                 //Try to get a handler for this function.
-                IModbusFunctionService handler = _handlers.GetValueOrDefault(request.FunctionCode);
+                _handlers.TryGetValue(request.FunctionCode, out var handler);
 
                 //Check to see if we found a handler for this function code.
                 if (handler == null)

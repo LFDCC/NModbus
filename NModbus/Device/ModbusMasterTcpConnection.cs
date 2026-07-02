@@ -109,18 +109,17 @@ namespace NModbus.Device
                {
                    Logger.Debug($"Begin reading header from Master at IP: {EndPoint}");
 
-                   // Read the full 6-byte MBAP header — loop to guard against short reads
-                   int totalRead = 0;
-                   while (totalRead < 6)
+                   // Read the full 6-byte MBAP header — Stream.ReadExactlyAsync handles short reads
+                   // and throws EndOfStreamException on EOF, equivalent to the old manual loop + 0-byte check.
+                   try
                    {
-                       int readBytes = await Stream.ReadAsync(_mbapHeader, totalRead, 6 - totalRead, disposeToken).ConfigureAwait(false);
-                       if (readBytes == 0)
-                       {
-                           Logger.Debug($"0 bytes read, Master at {EndPoint} has closed Socket connection.");
-                           RaiseConnectionClosed();
-                           return;
-                       }
-                       totalRead += readBytes;
+                       await Stream.ReadExactlyAsync(_mbapHeader.AsMemory(0, 6), disposeToken).ConfigureAwait(false);
+                   }
+                   catch (EndOfStreamException)
+                   {
+                       Logger.Debug($"0 bytes read, Master at {EndPoint} has closed Socket connection.");
+                       RaiseConnectionClosed();
+                       return;
                    }
 
                    ushort frameLength = BinaryPrimitives.ReadUInt16BigEndian(_mbapHeader.AsSpan(4));
@@ -135,19 +134,17 @@ namespace NModbus.Device
 
                    Logger.Debug($"Master at {EndPoint} sent header: \"{string.Join(", ", _mbapHeader)}\" with {frameLength} bytes in PDU");
 
-                   // Read the full PDU — loop to guard against short reads
+                   // Read the full PDU
                    _messageFrame = new byte[frameLength];
-                   totalRead = 0;
-                   while (totalRead < frameLength)
+                   try
                    {
-                       int readBytes = await Stream.ReadAsync(_messageFrame, totalRead, frameLength - totalRead, disposeToken).ConfigureAwait(false);
-                       if (readBytes == 0)
-                       {
-                           Logger.Debug($"0 bytes read, Master at {EndPoint} has closed Socket connection.");
-                           RaiseConnectionClosed();
-                           return;
-                       }
-                       totalRead += readBytes;
+                       await Stream.ReadExactlyAsync(_messageFrame.AsMemory(0, frameLength), disposeToken).ConfigureAwait(false);
+                   }
+                   catch (EndOfStreamException)
+                   {
+                       Logger.Debug($"0 bytes read, Master at {EndPoint} has closed Socket connection.");
+                       RaiseConnectionClosed();
+                       return;
                    }
 
                    Logger.Debug($"Read frame from Master at {EndPoint} completed {frameLength} bytes");

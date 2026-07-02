@@ -37,19 +37,8 @@ namespace NModbus.IO
             byte[] messageFrame = null;
             try
             {
-                // read header
-                int numBytesRead = 0;
-                while (numBytesRead != 6)
-                {
-                    int bRead = streamResource.Read(mbapHeader, numBytesRead, 6 - numBytesRead);
-
-                    if (bRead == 0)
-                    {
-                        throw new IOException("Read resulted in 0 bytes returned.");
-                    }
-
-                    numBytesRead += bRead;
-                }
+                // Read header
+                streamResource.ReadExactly(mbapHeader, 6);
 
                 logger.Debug($"MBAP header: {string.Join(", ", mbapHeader)}");
                 var frameLength = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(4));
@@ -61,21 +50,9 @@ namespace NModbus.IO
                 if (frameLength > 260)
                     throw new IOException($"Invalid MBAP frame length: {frameLength}. Exceeds maximum allowed (260). Possible DoS or corrupt frame.");
 
-                // read message
+                // Read body
                 messageFrame = ArrayPool<byte>.Shared.Rent(frameLength);
-                numBytesRead = 0;
-
-                while (numBytesRead != frameLength)
-                {
-                    int bRead = streamResource.Read(messageFrame, numBytesRead, frameLength - numBytesRead);
-
-                    if (bRead == 0)
-                    {
-                        throw new IOException("Read resulted in 0 bytes returned.");
-                    }
-
-                    numBytesRead += bRead;
-                }
+                streamResource.ReadExactly(messageFrame, frameLength);
 
                 logger.Debug($"PDU: {frameLength}");
                 // Combined frame is the public return value — must be a tight array, not pooled, because
@@ -194,19 +171,8 @@ namespace NModbus.IO
             byte[] messageFrame = null;
             try
             {
-                // read header
-                int numBytesRead = 0;
-                while (numBytesRead != 6)
-                {
-                    int bRead = await StreamResource.ReadAsync(mbapHeader.AsMemory(numBytesRead, 6 - numBytesRead), cancellationToken).ConfigureAwait(false);
-
-                    if (bRead == 0)
-                    {
-                        throw new IOException("Read resulted in 0 bytes returned.");
-                    }
-
-                    numBytesRead += bRead;
-                }
+                // Read header
+                await StreamResource.ReadExactlyAsync(mbapHeader, 6, cancellationToken).ConfigureAwait(false);
 
                 Logger.Debug($"MBAP header: {string.Join(", ", mbapHeader)}");
                 var frameLength = BinaryPrimitives.ReadUInt16BigEndian(mbapHeader.AsSpan(4));
@@ -218,21 +184,9 @@ namespace NModbus.IO
                 if (frameLength > 260)
                     throw new IOException($"Invalid MBAP frame length: {frameLength}. Exceeds maximum allowed (260). Possible DoS or corrupt frame.");
 
-                // read message
+                // Read body
                 messageFrame = ArrayPool<byte>.Shared.Rent(frameLength);
-                numBytesRead = 0;
-
-                while (numBytesRead != frameLength)
-                {
-                    int bRead = await StreamResource.ReadAsync(messageFrame.AsMemory(numBytesRead, frameLength - numBytesRead), cancellationToken).ConfigureAwait(false);
-
-                    if (bRead == 0)
-                    {
-                        throw new IOException("Read resulted in 0 bytes returned.");
-                    }
-
-                    numBytesRead += bRead;
-                }
+                await StreamResource.ReadExactlyAsync(messageFrame, frameLength, cancellationToken).ConfigureAwait(false);
 
                 Logger.Debug($"PDU: {frameLength}");
 
