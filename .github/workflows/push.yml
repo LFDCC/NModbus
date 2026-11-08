@@ -1,28 +1,46 @@
 name: package push
 
 # https://acraven.medium.com/a-nuget-package-workflow-using-github-actions-7da8c6557863
+#
+# Publishing uses NuGet.org Trusted Publishing (OIDC): the job exchanges its
+# short-lived GitHub OIDC token for a temporary NuGet API key via NuGet/login.
+# The policy on nuget.org pins: owner=LFDCC, repo=NModbus, workflow=push.yml.
+# Manual runs (workflow_dispatch) skip the tag-gated steps and only verify
+# the OIDC login, without publishing anything.
 
 on:
   push:
     tags:
     - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
 jobs:
   build:
     # https://github.com/orgs/community/discussions/25253
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      id-token: write # required by NuGet/login to fetch the GitHub OIDC token
+      contents: read
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Verify commit exists in origin/master
+      if: startsWith(github.ref, 'refs/tags/')
       run: |
         git fetch --no-tags --prune origin +refs/heads/master:refs/remotes/origin/master
         git merge-base --is-ancestor HEAD origin/master
     - name: Set VERSION variable from tag
+      if: startsWith(github.ref, 'refs/tags/')
       run: echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_ENV
     - name: Pack
+      if: startsWith(github.ref, 'refs/tags/')
       run: dotnet pack --configuration Release /p:Version=${VERSION} --output . ./
+    # Get a short-lived NuGet API key (valid ~1 hour) via Trusted Publishing.
+    - name: NuGet login (OIDC → temporary API key)
+      uses: NuGet/login@v1
+      id: login
+      with:
+        user: ${{ secrets.NUGET_USER }}
     - name: Push
-      run: dotnet nuget push "*.nupkg" --source https://api.nuget.org/v3/index.json --api-key ${NUGET_API_KEY} --skip-duplicate
-      env:
-        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      if: startsWith(github.ref, 'refs/tags/')
+      run: dotnet nuget push "*.nupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
